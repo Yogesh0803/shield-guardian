@@ -1,5 +1,4 @@
 import asyncio
-import random
 import uuid
 import psutil
 from datetime import datetime, timezone
@@ -71,18 +70,12 @@ def _get_real_connections():
     return connections
 
 
-# Track previous stats for delta calculation
-_prev_stats = {"bytes_in": 0, "bytes_out": 0, "packets": 0}
-
-
 async def websocket_network_endpoint(websocket: WebSocket):
     """WebSocket handler for real-time network data."""
-    global _prev_stats
     await manager.connect(websocket, "network")
 
-    # Initialize previous stats
-    current = _get_real_network_stats()
-    _prev_stats = current.copy()
+    # Per-connection state — each client tracks its own deltas.
+    prev_stats = _get_real_network_stats()
 
     try:
         while True:
@@ -90,10 +83,10 @@ async def websocket_network_endpoint(websocket: WebSocket):
             current = _get_real_network_stats()
 
             # Calculate deltas (traffic since last update)
-            delta_in = max(0, current["bytes_in"] - _prev_stats["bytes_in"])
-            delta_out = max(0, current["bytes_out"] - _prev_stats["bytes_out"])
-            delta_packets = max(0, current["packets"] - _prev_stats["packets"])
-            _prev_stats = current.copy()
+            delta_in = max(0, current["bytes_in"] - prev_stats["bytes_in"])
+            delta_out = max(0, current["bytes_out"] - prev_stats["bytes_out"])
+            delta_packets = max(0, current["packets"] - prev_stats["packets"])
+            prev_stats = current.copy()
 
             avg_packet_size = (delta_in + delta_out) / max(delta_packets, 1)
 
@@ -129,87 +122,124 @@ async def websocket_network_endpoint(websocket: WebSocket):
 
 
 async def websocket_alerts_endpoint(websocket: WebSocket):
-    """WebSocket handler for real-time alerts."""
+    """WebSocket handler for real-time alerts.
+
+    Streams new alerts from the database.  Each cycle fetches rows
+    newer than the last seen timestamp so clients receive only fresh
+    data instead of fabricated random alerts.
+    """
+    from app.database import SessionLocal
+    from app.models.alert import Alert as AlertModel
+
     await manager.connect(websocket, "alerts")
-    severities = ["low", "medium", "high", "critical"]
-    categories = ["intrusion", "malware", "anomaly", "policy_violation", "data_leak"]
-    attack_types = [
-        "DDoS", "SQL Injection", "XSS", "Port Scan",
-        "Brute Force", "DNS Tunneling", "Data Exfiltration",
-    ]
+
+    # High-water mark — only push alerts newer than this.
+    last_seen_ts: datetime | None = None
+
     try:
         while True:
-            # Occasionally send an alert (simulated)
-            if random.random() < 0.3:
-                severity = random.choice(severities)
-                category = random.choice(categories)
-                data = {
-                    "type": "new_alert",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "severity": severity,
-                    "category": category,
-                    "attack_type": random.choice(attack_types) if random.random() > 0.3 else None,
-                    "message": f"Detected {category} event with {severity} severity",
-                    "confidence": round(random.uniform(0.5, 0.99), 3),
-                }
-                await manager.send_personal_message(data, websocket)
+            db = SessionLocal()
+            try:
+                query = (
+                    db.query(AlertModel)
+                    .order_by(AlertModel.timestamp.desc())
+                )
+                if last_seen_ts is not None:
+                    query = query.filter(AlertModel.timestamp > last_seen_ts)
+
+                rows = query.limit(20).all()
+
+                for row in reversed(rows):  # oldest-first
+                    data = {
+                        "type": "new_alert",
+                        "data": {
+                            "id": row.id,
+                            "severity": row.severity,
+                            "category": row.category,
+                            "attack_type": row.attack_type,
+                            "message": row.message,
+                            "confidence": row.confidence,
+                            "app_name": (
+                                row.application.name
+                                if row.application
+                                else None
+                            ),
+                            "timestamp": (
+                                row.timestamp.isoformat()
+                                if row.timestamp
+                                else datetime.now(timezone.utc).isoformat()
+                            ),
+                        },
+                    }
+                    await manager.send_personal_message(data, websocket)
+
+                if rows:
+                    last_seen_ts = rows[0].timestamp
+            finally:
+                db.close()
+
             await asyncio.sleep(3)
     except WebSocketDisconnect:
         manager.disconnect(websocket, "alerts")
 
 
 async def websocket_predictions_endpoint(websocket: WebSocket):
-    """WebSocket handler for real-time ML predictions."""
+    """WebSocket handler for real-time ML predictions.
+
+    Streams the latest predictions from the database to connected
+    dashboard clients.  Each cycle fetches rows newer than the last
+    seen timestamp so the client receives only fresh data.
+    """
+    from app.database import SessionLocal
+    from app.models.ml_prediction import MLPrediction
+
     await manager.connect(websocket, "predictions")
-    attack_types = [
-        "DDoS", "SQL Injection", "XSS", "Port Scan",
-        "Brute Force", "Man-in-the-Middle", "DNS Tunneling",
-        "Data Exfiltration", "Malware C2",
-    ]
-    app_names = ["nginx", "postgres", "redis", "node-api", "python-worker"]
+
+    # Track the high-water mark so we only push new rows.
+    last_seen_ts: datetime | None = None
+
     try:
         while True:
-            anomaly_score = round(random.uniform(0.0, 1.0), 4)
-            is_anomaly = anomaly_score > 0.7
-            action = "block" if anomaly_score > 0.85 else ("alert" if is_anomaly else "allow")
-            attack_type = random.choice(attack_types) if is_anomaly else "Benign"
-            src_ip = f"192.168.{random.randint(1, 254)}.{random.randint(1, 254)}"
-            dst_ip = f"10.0.{random.randint(1, 10)}.{random.randint(1, 254)}"
-            app_name = random.choice(app_names)
+            db = SessionLocal()
+            try:
+                query = (
+                    db.query(MLPrediction)
+                    .order_by(MLPrediction.timestamp.desc())
+                )
+                if last_seen_ts is not None:
+                    query = query.filter(MLPrediction.timestamp > last_seen_ts)
 
-            data = {
-                "type": "prediction",
-                "data": {
-                    "id": str(uuid.uuid4()),
-                    "anomaly_score": anomaly_score,
-                    "attack_type": attack_type,
-                    "confidence": round(random.uniform(0.6, 0.99), 3) if is_anomaly else round(random.uniform(0.85, 0.99), 3),
-                    "action": action,
-                    "app_name": app_name,
-                    "src_ip": src_ip,
-                    "dst_ip": dst_ip,
-                    "context": {
-                        "app_name": app_name,
-                        "process_id": random.randint(1000, 65000),
-                        "app_trust_score": round(random.uniform(0.3, 1.0), 2),
-                        "hour": datetime.now().hour,
-                        "day_of_week": datetime.now().weekday(),
-                        "is_business_hours": 9 <= datetime.now().hour <= 17,
-                        "rate_deviation": round(random.uniform(-1.0, 3.0), 2),
-                        "size_deviation": round(random.uniform(-0.5, 2.5), 2),
-                        "destination_novelty": round(random.uniform(0.0, 1.0), 2),
-                        "dest_country": random.choice(["United States", "Germany", "China", "Russia", "India", "Japan"]),
-                        "dest_country_code": random.choice(["US", "DE", "CN", "RU", "IN", "JP"]),
-                        "is_geo_anomaly": random.random() > 0.85,
-                        "src_ip": src_ip,
-                        "dst_ip": dst_ip,
-                        "dst_port": random.choice([80, 443, 22, 3306, 5432, 8080]),
-                        "protocol": random.choice(["TCP", "UDP"]),
-                    },
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                },
-            }
-            await manager.send_personal_message(data, websocket)
-            await asyncio.sleep(1.5)
+                # Fetch at most 20 recent predictions per cycle
+                rows = query.limit(20).all()
+
+                for row in reversed(rows):  # oldest-first for the client
+                    data = {
+                        "type": "prediction",
+                        "data": {
+                            "id": row.id,
+                            "anomaly_score": row.anomaly_score,
+                            "attack_type": row.attack_type or "Benign",
+                            "confidence": row.confidence,
+                            "action": row.action,
+                            "app_name": row.app_name,
+                            "src_ip": row.src_ip,
+                            "dst_ip": row.dst_ip,
+                            "context": row.context_json or {},
+                            "timestamp": (
+                                row.timestamp.isoformat()
+                                if row.timestamp
+                                else datetime.now(timezone.utc).isoformat()
+                            ),
+                        },
+                    }
+                    await manager.send_personal_message(data, websocket)
+
+                if rows:
+                    # rows are DESC; first element is the newest
+                    last_seen_ts = rows[0].timestamp
+            finally:
+                db.close()
+
+            await asyncio.sleep(2)
     except WebSocketDisconnect:
         manager.disconnect(websocket, "predictions")

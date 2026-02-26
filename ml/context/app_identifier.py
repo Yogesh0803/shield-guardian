@@ -6,10 +6,14 @@ Maps connections to PIDs to process names.
 import logging
 from typing import Optional, Dict, Tuple
 from dataclasses import dataclass
+from collections import OrderedDict
 
 import psutil
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of (src_ip, src_port) → AppInfo mappings to cache.
+_MAX_CACHE_SIZE = 10_000
 
 
 @dataclass
@@ -46,7 +50,7 @@ class AppIdentifier:
     """Identifies the application associated with a network connection."""
 
     def __init__(self):
-        self._cache: Dict[Tuple[str, int], AppInfo] = {}
+        self._cache: OrderedDict[Tuple[str, int], AppInfo] = OrderedDict()
         self._history: Dict[str, int] = {}  # app_name -> connection count
 
     def identify(self, src_ip: str, src_port: int, dst_ip: str, dst_port: int, protocol: str) -> Optional[AppInfo]:
@@ -75,6 +79,9 @@ class AppIdentifier:
                             app_info = AppInfo(pid=conn.pid, name=name, exe=exe, trust_score=trust)
 
                             self._cache[cache_key] = app_info
+                            # Evict oldest entries when cache exceeds limit.
+                            while len(self._cache) > _MAX_CACHE_SIZE:
+                                self._cache.popitem(last=False)
                             self._history[name] = self._history.get(name, 0) + 1
                             return app_info
                         except (psutil.NoSuchProcess, psutil.AccessDenied):

@@ -398,7 +398,10 @@ const MLEngine: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-gray-700/30">
                 {predictions.map((pred) => {
-                  const acfg = actionConfig[pred.action];
+                  const acfg = actionConfig[pred.action] ?? {
+                    variant: 'default' as const,
+                    icon: <Shield size={12} />,
+                  };
                   return (
                     <tr
                       key={pred.id}

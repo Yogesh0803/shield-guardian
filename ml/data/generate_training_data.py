@@ -1,399 +1,363 @@
 """
-Generate synthetic training data in CICIDS2017 format.
-Creates realistic network flow data for training ML models.
+Generate synthetic training data using the actual FeatureExtractor.
 
-This serves as bootstrap training data. For best results,
-replace with the real CICIDS2017 dataset when available.
+By generating raw Flow objects (with PacketInfo) and extracting features
+through the same FeatureExtractor used at inference time, we guarantee
+that training and inference see identical feature distributions.
+
+The previous generator produced hand-crafted feature vectors with
+CICFlowMeter unit conventions (millisecond times, per-packet header
+lengths) that did NOT match the FeatureExtractor output (second times,
+summed header lengths), causing all models to saturate at max anomaly
+score on live traffic.
 
 Usage:
     python -m ml.data.generate_training_data
 """
 
 import os
+import sys
+import time as _time
+
 import numpy as np
 import pandas as pd
 
+# Allow standalone execution from the project root
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from ml.capture.packet_capture import Flow, PacketInfo
+from ml.capture.feature_extractor import FeatureExtractor
+
 np.random.seed(42)
 
-# CICIDS2017-compatible feature columns
-FEATURE_COLUMNS = [
-    "Flow Duration", "Total Fwd Packets", "Total Backward Packets",
-    "Total Length of Fwd Packets", "Total Length of Bwd Packets",
-    "Fwd Packet Length Max", "Fwd Packet Length Min", "Fwd Packet Length Mean", "Fwd Packet Length Std",
-    "Bwd Packet Length Max", "Bwd Packet Length Min", "Bwd Packet Length Mean", "Bwd Packet Length Std",
-    "Flow Bytes/s", "Flow Packets/s",
-    "Flow IAT Mean", "Flow IAT Std", "Flow IAT Max", "Flow IAT Min",
-    "Fwd IAT Mean", "Fwd IAT Std", "Fwd IAT Max", "Fwd IAT Min",
-    "Bwd IAT Mean", "Bwd IAT Std", "Bwd IAT Max", "Bwd IAT Min",
-    "Fwd Header Length", "Bwd Header Length",
-    "Fwd Packets/s", "Bwd Packets/s",
-    "Packet Length Mean", "Packet Length Std", "Packet Length Variance",
-    "FIN Flag Count", "SYN Flag Count", "RST Flag Count",
-    "PSH Flag Count", "ACK Flag Count", "URG Flag Count",
-]
+_extractor = FeatureExtractor()
+FEATURE_COLUMNS = FeatureExtractor.FEATURE_NAMES
 
 
-def generate_benign(n: int) -> pd.DataFrame:
-    """Generate normal/benign traffic patterns."""
-    data = {
-        "Flow Duration": np.random.exponential(5000, n),
-        "Total Fwd Packets": np.random.poisson(15, n) + 1,
-        "Total Backward Packets": np.random.poisson(12, n) + 1,
-        "Total Length of Fwd Packets": np.random.exponential(2000, n),
-        "Total Length of Bwd Packets": np.random.exponential(5000, n),
-        "Fwd Packet Length Max": np.random.exponential(800, n),
-        "Fwd Packet Length Min": np.random.exponential(40, n),
-        "Fwd Packet Length Mean": np.random.exponential(200, n),
-        "Fwd Packet Length Std": np.random.exponential(100, n),
-        "Bwd Packet Length Max": np.random.exponential(1200, n),
-        "Bwd Packet Length Min": np.random.exponential(40, n),
-        "Bwd Packet Length Mean": np.random.exponential(400, n),
-        "Bwd Packet Length Std": np.random.exponential(200, n),
-        "Flow Bytes/s": np.random.exponential(50000, n),
-        "Flow Packets/s": np.random.exponential(100, n),
-        "Flow IAT Mean": np.random.exponential(500, n),
-        "Flow IAT Std": np.random.exponential(300, n),
-        "Flow IAT Max": np.random.exponential(2000, n),
-        "Flow IAT Min": np.random.exponential(10, n),
-        "Fwd IAT Mean": np.random.exponential(600, n),
-        "Fwd IAT Std": np.random.exponential(400, n),
-        "Fwd IAT Max": np.random.exponential(3000, n),
-        "Fwd IAT Min": np.random.exponential(20, n),
-        "Bwd IAT Mean": np.random.exponential(700, n),
-        "Bwd IAT Std": np.random.exponential(500, n),
-        "Bwd IAT Max": np.random.exponential(4000, n),
-        "Bwd IAT Min": np.random.exponential(30, n),
-        "Fwd Header Length": np.random.poisson(320, n),
-        "Bwd Header Length": np.random.poisson(280, n),
-        "Fwd Packets/s": np.random.exponential(50, n),
-        "Bwd Packets/s": np.random.exponential(40, n),
-        "Packet Length Mean": np.random.exponential(300, n),
-        "Packet Length Std": np.random.exponential(150, n),
-        "Packet Length Variance": np.random.exponential(25000, n),
-        "FIN Flag Count": np.random.binomial(1, 0.3, n),
-        "SYN Flag Count": np.random.binomial(1, 0.2, n),
-        "RST Flag Count": np.random.binomial(1, 0.02, n),
-        "PSH Flag Count": np.random.binomial(3, 0.5, n),
-        "ACK Flag Count": np.random.poisson(10, n),
-        "URG Flag Count": np.zeros(n),
-    }
-    df = pd.DataFrame(data)
+# ======================== Helpers ========================
+
+def _make_pkts(n, src_ip, dst_ip, src_port, dst_port, protocol,
+               size_range, flags, start_time, iat_mean, iat_jitter=0.3):
+    """Create *n* synthetic PacketInfo objects."""
+    pkts = []
+    t = start_time
+    hdr = 40 if protocol == "TCP" else 20
+    for i in range(n):
+        sz = int(np.random.randint(size_range[0], size_range[1] + 1))
+        f = flags(i, n) if callable(flags) else flags
+        pkts.append(PacketInfo(
+            timestamp=t,
+            src_ip=src_ip, dst_ip=dst_ip,
+            src_port=src_port, dst_port=dst_port,
+            protocol=protocol, length=sz, flags=f,
+            payload_size=max(0, sz - hdr),
+            ttl=64, header_length=hdr,
+        ))
+        t += max(iat_mean * (1 + np.random.uniform(-iat_jitter, iat_jitter)), 1e-8)
+    return pkts
+
+
+def _build_flow(fwd, bwd, src_ip, dst_ip, src_port, dst_port, proto="TCP"):
+    """Merge fwd + bwd packets into a Flow."""
+    flow = Flow(
+        flow_id=f"syn_{np.random.randint(0, 10 ** 7)}",
+        src_ip=src_ip, dst_ip=dst_ip,
+        src_port=src_port, dst_port=dst_port,
+        protocol=proto,
+    )
+    for p in sorted(fwd + bwd, key=lambda x: x.timestamp):
+        flow.add_packet(p)
+    return flow
+
+
+def _flow_features(flow):
+    return _extractor.extract(flow)
+
+
+# ======================== Traffic Generators ========================
+
+def generate_benign(n):
+    """Normal browsing / API / DNS traffic."""
+    rows = []
+    for i in range(n):
+        # ~15 % DNS/NTP (UDP), rest TCP browsing
+        if np.random.random() < 0.15:
+            fwd_n = np.random.randint(1, 4)
+            bwd_n = np.random.randint(1, 3)
+            dur = np.random.exponential(0.05) + 0.005
+            iat = dur / max(fwd_n + bwd_n - 1, 1)
+            sp = np.random.randint(1024, 65536)
+            dp = int(np.random.choice([53, 123, 5353]))
+            src, dst = "10.0.0.1", "192.168.1.1"
+            fwd = _make_pkts(fwd_n, src, dst, sp, dp, "UDP",
+                             (60, 200), "", 0.0, iat)
+            bwd = _make_pkts(bwd_n, dst, src, dp, sp, "UDP",
+                             (60, 512), "", iat * 0.5, iat)
+            flow = _build_flow(fwd, bwd, src, dst, sp, dp, "UDP")
+        else:
+            fwd_n = np.random.randint(3, 51)
+            bwd_n = np.random.randint(2, min(fwd_n + 10, 41))
+            dur = np.random.exponential(5.0) + 0.5
+            iat = dur / max(fwd_n + bwd_n - 1, 1)
+            sp = np.random.randint(1024, 65536)
+            dp = int(np.random.choice([80, 443, 8080, 8443, 3000]))
+            src, dst = "10.0.0.1", "192.168.1.1"
+
+            def _ff(idx, tot):
+                if idx == 0:
+                    return "S"
+                if idx == tot - 1:
+                    return "FA"
+                return "PA" if np.random.random() < 0.3 else "A"
+
+            def _bf(idx, tot):
+                return "SA" if idx == 0 else "A"
+
+            fwd = _make_pkts(fwd_n, src, dst, sp, dp, "TCP",
+                             (60, 1500), _ff, 0.0, iat)
+            bwd = _make_pkts(bwd_n, dst, src, dp, sp, "TCP",
+                             (60, 1500), _bf, iat * 0.5, iat)
+            flow = _build_flow(fwd, bwd, src, dst, sp, dp)
+
+        rows.append(_flow_features(flow))
+        if (i + 1) % 5000 == 0:
+            print(f"    BENIGN: {i + 1}/{n}")
+
+    df = pd.DataFrame(rows, columns=FEATURE_COLUMNS)
     df["Label"] = "BENIGN"
     return df
 
 
-def generate_dos(n: int) -> pd.DataFrame:
-    """Generate DoS attack patterns — high packet rate, small packets."""
-    data = {
-        "Flow Duration": np.random.exponential(100, n),  # short bursts
-        "Total Fwd Packets": np.random.poisson(500, n) + 100,  # many packets
-        "Total Backward Packets": np.random.poisson(5, n),  # few responses
-        "Total Length of Fwd Packets": np.random.exponential(50000, n),
-        "Total Length of Bwd Packets": np.random.exponential(200, n),
-        "Fwd Packet Length Max": np.random.exponential(200, n),
-        "Fwd Packet Length Min": np.random.exponential(60, n) + 40,
-        "Fwd Packet Length Mean": np.random.exponential(80, n) + 40,
-        "Fwd Packet Length Std": np.random.exponential(20, n),  # low variance = uniform
-        "Bwd Packet Length Max": np.random.exponential(100, n),
-        "Bwd Packet Length Min": np.random.exponential(20, n),
-        "Bwd Packet Length Mean": np.random.exponential(50, n),
-        "Bwd Packet Length Std": np.random.exponential(30, n),
-        "Flow Bytes/s": np.random.exponential(500000, n),  # very high
-        "Flow Packets/s": np.random.exponential(5000, n),  # very high
-        "Flow IAT Mean": np.random.exponential(1, n),  # very low IAT
-        "Flow IAT Std": np.random.exponential(0.5, n),
-        "Flow IAT Max": np.random.exponential(10, n),
-        "Flow IAT Min": np.random.exponential(0.1, n),
-        "Fwd IAT Mean": np.random.exponential(1, n),
-        "Fwd IAT Std": np.random.exponential(0.5, n),
-        "Fwd IAT Max": np.random.exponential(5, n),
-        "Fwd IAT Min": np.random.exponential(0.05, n),
-        "Bwd IAT Mean": np.random.exponential(100, n),
-        "Bwd IAT Std": np.random.exponential(50, n),
-        "Bwd IAT Max": np.random.exponential(500, n),
-        "Bwd IAT Min": np.random.exponential(10, n),
-        "Fwd Header Length": np.random.poisson(200, n),
-        "Bwd Header Length": np.random.poisson(40, n),
-        "Fwd Packets/s": np.random.exponential(5000, n),
-        "Bwd Packets/s": np.random.exponential(10, n),
-        "Packet Length Mean": np.random.exponential(80, n) + 40,
-        "Packet Length Std": np.random.exponential(20, n),
-        "Packet Length Variance": np.random.exponential(500, n),
-        "FIN Flag Count": np.random.binomial(1, 0.05, n),
-        "SYN Flag Count": np.random.binomial(10, 0.8, n),  # SYN flood
-        "RST Flag Count": np.random.binomial(1, 0.1, n),
-        "PSH Flag Count": np.random.binomial(1, 0.1, n),
-        "ACK Flag Count": np.random.poisson(2, n),
-        "URG Flag Count": np.zeros(n),
-    }
-    df = pd.DataFrame(data)
+def generate_dos(n):
+    """DoS SYN flood — high packet rate, small packets, unidirectional."""
+    rows = []
+    for i in range(n):
+        fwd_n = np.random.randint(50, 501)
+        bwd_n = np.random.randint(0, 6)
+        dur = np.random.exponential(0.5) + 0.01
+        iat = dur / max(fwd_n + bwd_n - 1, 1)
+        sp = np.random.randint(1024, 65536)
+        dp = int(np.random.choice([80, 443, 22, 3389]))
+        src, dst = "10.0.0.1", "192.168.1.1"
+
+        fwd = _make_pkts(fwd_n, src, dst, sp, dp, "TCP",
+                         (40, 100), "S", 0.0, iat)
+        bwd = _make_pkts(bwd_n, dst, src, dp, sp, "TCP",
+                         (40, 80), "RA", iat * 0.5, iat * 3)
+        flow = _build_flow(fwd, bwd, src, dst, sp, dp)
+        rows.append(_flow_features(flow))
+
+        if (i + 1) % 1000 == 0:
+            print(f"    DoS: {i + 1}/{n}")
+
+    df = pd.DataFrame(rows, columns=FEATURE_COLUMNS)
     df["Label"] = "DoS"
     return df
 
 
-def generate_ddos(n: int) -> pd.DataFrame:
-    """Generate DDoS patterns — similar to DoS but with distributed source characteristics."""
-    df = generate_dos(n)
+def generate_ddos(n):
+    """DDoS — even higher volume, shorter duration, more uniform sizes."""
+    rows = []
+    for i in range(n):
+        fwd_n = np.random.randint(200, 1001)
+        bwd_n = np.random.randint(0, 4)
+        dur = np.random.exponential(0.2) + 0.005
+        iat = dur / max(fwd_n + bwd_n - 1, 1)
+        sp = np.random.randint(1024, 65536)
+        dp = int(np.random.choice([80, 443, 53]))
+        proto = np.random.choice(["TCP", "UDP"], p=[0.7, 0.3])
+        src, dst = "10.0.0.1", "192.168.1.1"
+
+        if proto == "TCP":
+            fwd = _make_pkts(fwd_n, src, dst, sp, dp, "TCP",
+                             (40, 65), "S", 0.0, iat, iat_jitter=0.1)
+            bwd = _make_pkts(bwd_n, dst, src, dp, sp, "TCP",
+                             (40, 60), "RA", iat * 0.3, iat * 5)
+        else:
+            fwd = _make_pkts(fwd_n, src, dst, sp, dp, "UDP",
+                             (40, 150), "", 0.0, iat, iat_jitter=0.1)
+            bwd = _make_pkts(bwd_n, dst, src, dp, sp, "UDP",
+                             (40, 60), "", iat * 0.3, iat * 5)
+
+        flow = _build_flow(fwd, bwd, src, dst, sp, dp, proto)
+        rows.append(_flow_features(flow))
+
+        if (i + 1) % 500 == 0:
+            print(f"    DDoS: {i + 1}/{n}")
+
+    df = pd.DataFrame(rows, columns=FEATURE_COLUMNS)
     df["Label"] = "DDoS"
-    # DDoS has even higher packet rates and more uniform patterns
-    df["Flow Packets/s"] *= 2
-    df["Flow Bytes/s"] *= 1.5
-    df["Fwd Packet Length Std"] *= 0.5  # more uniform
     return df
 
 
-def generate_portscan(n: int) -> pd.DataFrame:
-    """Generate port scan patterns — many short connections, SYN packets."""
-    data = {
-        "Flow Duration": np.random.exponential(50, n),  # very short
-        "Total Fwd Packets": np.ones(n) + np.random.binomial(2, 0.3, n),  # 1-3 packets
-        "Total Backward Packets": np.random.binomial(1, 0.5, n),  # 0-1 response
-        "Total Length of Fwd Packets": np.random.exponential(60, n) + 40,
-        "Total Length of Bwd Packets": np.random.exponential(40, n),
-        "Fwd Packet Length Max": np.random.exponential(60, n) + 40,
-        "Fwd Packet Length Min": np.random.exponential(40, n) + 40,
-        "Fwd Packet Length Mean": np.random.exponential(50, n) + 40,
-        "Fwd Packet Length Std": np.random.exponential(5, n),
-        "Bwd Packet Length Max": np.random.exponential(60, n),
-        "Bwd Packet Length Min": np.random.exponential(40, n),
-        "Bwd Packet Length Mean": np.random.exponential(50, n),
-        "Bwd Packet Length Std": np.random.exponential(10, n),
-        "Flow Bytes/s": np.random.exponential(10000, n),
-        "Flow Packets/s": np.random.exponential(200, n),
-        "Flow IAT Mean": np.random.exponential(5, n),
-        "Flow IAT Std": np.random.exponential(2, n),
-        "Flow IAT Max": np.random.exponential(20, n),
-        "Flow IAT Min": np.random.exponential(0.5, n),
-        "Fwd IAT Mean": np.random.exponential(5, n),
-        "Fwd IAT Std": np.random.exponential(2, n),
-        "Fwd IAT Max": np.random.exponential(10, n),
-        "Fwd IAT Min": np.random.exponential(0.5, n),
-        "Bwd IAT Mean": np.random.exponential(10, n),
-        "Bwd IAT Std": np.random.exponential(5, n),
-        "Bwd IAT Max": np.random.exponential(20, n),
-        "Bwd IAT Min": np.random.exponential(1, n),
-        "Fwd Header Length": np.random.poisson(40, n),
-        "Bwd Header Length": np.random.poisson(20, n),
-        "Fwd Packets/s": np.random.exponential(200, n),
-        "Bwd Packets/s": np.random.exponential(50, n),
-        "Packet Length Mean": np.random.exponential(50, n) + 40,
-        "Packet Length Std": np.random.exponential(10, n),
-        "Packet Length Variance": np.random.exponential(100, n),
-        "FIN Flag Count": np.zeros(n),
-        "SYN Flag Count": np.ones(n),  # always SYN
-        "RST Flag Count": np.random.binomial(1, 0.6, n),  # often RST response
-        "PSH Flag Count": np.zeros(n),
-        "ACK Flag Count": np.random.binomial(1, 0.3, n),
-        "URG Flag Count": np.zeros(n),
-    }
-    df = pd.DataFrame(data)
+def generate_portscan(n):
+    """Port scan — very short probes, SYN-only."""
+    rows = []
+    for i in range(n):
+        fwd_n = np.random.randint(1, 4)
+        bwd_n = np.random.randint(0, 2)
+        dur = np.random.exponential(0.01) + 0.001
+        iat = dur / max(fwd_n + bwd_n - 1, 1)
+        sp = np.random.randint(1024, 65536)
+        dp = np.random.randint(1, 1025)
+        src, dst = "10.0.0.1", "192.168.1.1"
+
+        fwd = _make_pkts(fwd_n, src, dst, sp, dp, "TCP",
+                         (40, 60), "S", 0.0, iat)
+        bf = "RA" if np.random.random() < 0.6 else "SA"
+        bwd = _make_pkts(bwd_n, dst, src, dp, sp, "TCP",
+                         (40, 60), bf, iat * 0.4, iat)
+        flow = _build_flow(fwd, bwd, src, dst, sp, dp)
+        rows.append(_flow_features(flow))
+
+        if (i + 1) % 1000 == 0:
+            print(f"    PortScan: {i + 1}/{n}")
+
+    df = pd.DataFrame(rows, columns=FEATURE_COLUMNS)
     df["Label"] = "PortScan"
     return df
 
 
-def generate_bruteforce(n: int) -> pd.DataFrame:
-    """Generate brute force patterns — repeated auth attempts."""
-    data = {
-        "Flow Duration": np.random.exponential(3000, n),
-        "Total Fwd Packets": np.random.poisson(8, n) + 3,
-        "Total Backward Packets": np.random.poisson(6, n) + 2,
-        "Total Length of Fwd Packets": np.random.exponential(500, n) + 100,
-        "Total Length of Bwd Packets": np.random.exponential(300, n) + 50,
-        "Fwd Packet Length Max": np.random.exponential(200, n) + 50,
-        "Fwd Packet Length Min": np.random.exponential(50, n) + 20,
-        "Fwd Packet Length Mean": np.random.exponential(80, n) + 30,
-        "Fwd Packet Length Std": np.random.exponential(30, n),
-        "Bwd Packet Length Max": np.random.exponential(150, n) + 40,
-        "Bwd Packet Length Min": np.random.exponential(30, n) + 20,
-        "Bwd Packet Length Mean": np.random.exponential(60, n) + 30,
-        "Bwd Packet Length Std": np.random.exponential(25, n),
-        "Flow Bytes/s": np.random.exponential(5000, n),
-        "Flow Packets/s": np.random.exponential(20, n),
-        "Flow IAT Mean": np.random.exponential(200, n) + 50,  # regular intervals
-        "Flow IAT Std": np.random.exponential(30, n),  # low variance = automated
-        "Flow IAT Max": np.random.exponential(500, n),
-        "Flow IAT Min": np.random.exponential(50, n) + 20,
-        "Fwd IAT Mean": np.random.exponential(300, n) + 50,
-        "Fwd IAT Std": np.random.exponential(40, n),
-        "Fwd IAT Max": np.random.exponential(600, n),
-        "Fwd IAT Min": np.random.exponential(50, n) + 20,
-        "Bwd IAT Mean": np.random.exponential(400, n) + 100,
-        "Bwd IAT Std": np.random.exponential(100, n),
-        "Bwd IAT Max": np.random.exponential(1000, n),
-        "Bwd IAT Min": np.random.exponential(50, n),
-        "Fwd Header Length": np.random.poisson(160, n),
-        "Bwd Header Length": np.random.poisson(120, n),
-        "Fwd Packets/s": np.random.exponential(10, n),
-        "Bwd Packets/s": np.random.exponential(8, n),
-        "Packet Length Mean": np.random.exponential(70, n) + 30,
-        "Packet Length Std": np.random.exponential(30, n),
-        "Packet Length Variance": np.random.exponential(1000, n),
-        "FIN Flag Count": np.random.binomial(1, 0.3, n),
-        "SYN Flag Count": np.random.binomial(1, 0.3, n),
-        "RST Flag Count": np.random.binomial(1, 0.4, n),  # many resets (failed auth)
-        "PSH Flag Count": np.random.binomial(3, 0.6, n),
-        "ACK Flag Count": np.random.poisson(5, n),
-        "URG Flag Count": np.zeros(n),
-    }
-    df = pd.DataFrame(data)
+def generate_bruteforce(n):
+    """SSH / RDP brute-force — repeated auth attempts."""
+    rows = []
+    for i in range(n):
+        fwd_n = np.random.randint(3, 21)
+        bwd_n = np.random.randint(2, 16)
+        dur = np.random.exponential(3.0) + 0.5
+        iat = dur / max(fwd_n + bwd_n - 1, 1)
+        sp = np.random.randint(40000, 65536)
+        dp = int(np.random.choice([22, 23, 3389, 5900]))
+        src, dst = "10.0.0.1", "192.168.1.1"
+
+        def _ff(idx, tot):
+            if idx == 0:
+                return "S"
+            return "PA"
+
+        def _bf(idx, tot):
+            if idx == 0:
+                return "SA"
+            return "RA" if np.random.random() < 0.3 else "A"
+
+        fwd = _make_pkts(fwd_n, src, dst, sp, dp, "TCP",
+                         (60, 200), _ff, 0.0, iat)
+        bwd = _make_pkts(bwd_n, dst, src, dp, sp, "TCP",
+                         (40, 150), _bf, iat * 0.5, iat)
+        flow = _build_flow(fwd, bwd, src, dst, sp, dp)
+        rows.append(_flow_features(flow))
+
+        if (i + 1) % 500 == 0:
+            print(f"    BruteForce: {i + 1}/{n}")
+
+    df = pd.DataFrame(rows, columns=FEATURE_COLUMNS)
     df["Label"] = "BruteForce"
     return df
 
 
-def generate_webattack(n: int) -> pd.DataFrame:
-    """Generate web attack patterns — SQL injection, XSS."""
-    data = {
-        "Flow Duration": np.random.exponential(8000, n),
-        "Total Fwd Packets": np.random.poisson(20, n) + 5,
-        "Total Backward Packets": np.random.poisson(15, n) + 3,
-        "Total Length of Fwd Packets": np.random.exponential(3000, n) + 500,  # larger payloads
-        "Total Length of Bwd Packets": np.random.exponential(8000, n),
-        "Fwd Packet Length Max": np.random.exponential(1500, n) + 200,  # large payload for injection
-        "Fwd Packet Length Min": np.random.exponential(40, n),
-        "Fwd Packet Length Mean": np.random.exponential(300, n) + 50,
-        "Fwd Packet Length Std": np.random.exponential(200, n),  # high variance
-        "Bwd Packet Length Max": np.random.exponential(2000, n),
-        "Bwd Packet Length Min": np.random.exponential(40, n),
-        "Bwd Packet Length Mean": np.random.exponential(500, n),
-        "Bwd Packet Length Std": np.random.exponential(300, n),
-        "Flow Bytes/s": np.random.exponential(20000, n),
-        "Flow Packets/s": np.random.exponential(50, n),
-        "Flow IAT Mean": np.random.exponential(400, n),
-        "Flow IAT Std": np.random.exponential(300, n),
-        "Flow IAT Max": np.random.exponential(3000, n),
-        "Flow IAT Min": np.random.exponential(10, n),
-        "Fwd IAT Mean": np.random.exponential(500, n),
-        "Fwd IAT Std": np.random.exponential(400, n),
-        "Fwd IAT Max": np.random.exponential(3000, n),
-        "Fwd IAT Min": np.random.exponential(20, n),
-        "Bwd IAT Mean": np.random.exponential(600, n),
-        "Bwd IAT Std": np.random.exponential(400, n),
-        "Bwd IAT Max": np.random.exponential(4000, n),
-        "Bwd IAT Min": np.random.exponential(30, n),
-        "Fwd Header Length": np.random.poisson(400, n),  # more headers
-        "Bwd Header Length": np.random.poisson(300, n),
-        "Fwd Packets/s": np.random.exponential(30, n),
-        "Bwd Packets/s": np.random.exponential(20, n),
-        "Packet Length Mean": np.random.exponential(350, n),
-        "Packet Length Std": np.random.exponential(250, n),
-        "Packet Length Variance": np.random.exponential(60000, n),
-        "FIN Flag Count": np.random.binomial(1, 0.2, n),
-        "SYN Flag Count": np.random.binomial(1, 0.15, n),
-        "RST Flag Count": np.random.binomial(1, 0.05, n),
-        "PSH Flag Count": np.random.binomial(5, 0.7, n),  # lots of PSH (data transfer)
-        "ACK Flag Count": np.random.poisson(12, n),
-        "URG Flag Count": np.random.binomial(1, 0.05, n),
-    }
-    df = pd.DataFrame(data)
+def generate_webattack(n):
+    """SQL injection / XSS — large forward payloads, many headers."""
+    rows = []
+    for i in range(n):
+        fwd_n = np.random.randint(5, 41)
+        bwd_n = np.random.randint(3, 31)
+        dur = np.random.exponential(5.0) + 1.0
+        iat = dur / max(fwd_n + bwd_n - 1, 1)
+        sp = np.random.randint(1024, 65536)
+        dp = int(np.random.choice([80, 443, 8080, 8443]))
+        src, dst = "10.0.0.1", "192.168.1.1"
+
+        def _ff(idx, tot):
+            if idx == 0:
+                return "S"
+            return "PA"
+
+        def _bf(idx, tot):
+            if idx == 0:
+                return "SA"
+            return "PA" if np.random.random() < 0.5 else "A"
+
+        fwd = _make_pkts(fwd_n, src, dst, sp, dp, "TCP",
+                         (200, 1500), _ff, 0.0, iat)
+        bwd = _make_pkts(bwd_n, dst, src, dp, sp, "TCP",
+                         (100, 2000), _bf, iat * 0.5, iat)
+        flow = _build_flow(fwd, bwd, src, dst, sp, dp)
+        rows.append(_flow_features(flow))
+
+        if (i + 1) % 500 == 0:
+            print(f"    WebAttack: {i + 1}/{n}")
+
+    df = pd.DataFrame(rows, columns=FEATURE_COLUMNS)
     df["Label"] = "WebAttack"
     return df
 
 
-def generate_botnet(n: int) -> pd.DataFrame:
-    """Generate botnet C&C communication patterns."""
-    data = {
-        "Flow Duration": np.random.exponential(30000, n) + 5000,  # long-lived
-        "Total Fwd Packets": np.random.poisson(5, n) + 1,  # periodic beacons
-        "Total Backward Packets": np.random.poisson(3, n) + 1,
-        "Total Length of Fwd Packets": np.random.exponential(200, n) + 50,
-        "Total Length of Bwd Packets": np.random.exponential(500, n),
-        "Fwd Packet Length Max": np.random.exponential(150, n) + 50,
-        "Fwd Packet Length Min": np.random.exponential(40, n) + 20,
-        "Fwd Packet Length Mean": np.random.exponential(70, n) + 30,
-        "Fwd Packet Length Std": np.random.exponential(15, n),  # very uniform = beacon
-        "Bwd Packet Length Max": np.random.exponential(300, n),
-        "Bwd Packet Length Min": np.random.exponential(40, n),
-        "Bwd Packet Length Mean": np.random.exponential(100, n),
-        "Bwd Packet Length Std": np.random.exponential(50, n),
-        "Flow Bytes/s": np.random.exponential(500, n),  # low bandwidth
-        "Flow Packets/s": np.random.exponential(2, n),  # low rate
-        "Flow IAT Mean": np.random.exponential(10000, n) + 5000,  # regular intervals
-        "Flow IAT Std": np.random.exponential(500, n),  # very low variance = beacon
-        "Flow IAT Max": np.random.exponential(15000, n),
-        "Flow IAT Min": np.random.exponential(5000, n),
-        "Fwd IAT Mean": np.random.exponential(15000, n) + 5000,
-        "Fwd IAT Std": np.random.exponential(1000, n),
-        "Fwd IAT Max": np.random.exponential(20000, n),
-        "Fwd IAT Min": np.random.exponential(5000, n),
-        "Bwd IAT Mean": np.random.exponential(20000, n),
-        "Bwd IAT Std": np.random.exponential(5000, n),
-        "Bwd IAT Max": np.random.exponential(30000, n),
-        "Bwd IAT Min": np.random.exponential(5000, n),
-        "Fwd Header Length": np.random.poisson(100, n),
-        "Bwd Header Length": np.random.poisson(80, n),
-        "Fwd Packets/s": np.random.exponential(1, n),
-        "Bwd Packets/s": np.random.exponential(0.5, n),
-        "Packet Length Mean": np.random.exponential(70, n) + 30,
-        "Packet Length Std": np.random.exponential(20, n),
-        "Packet Length Variance": np.random.exponential(500, n),
-        "FIN Flag Count": np.random.binomial(1, 0.1, n),
-        "SYN Flag Count": np.random.binomial(1, 0.1, n),
-        "RST Flag Count": np.random.binomial(1, 0.02, n),
-        "PSH Flag Count": np.random.binomial(2, 0.5, n),
-        "ACK Flag Count": np.random.poisson(3, n),
-        "URG Flag Count": np.zeros(n),
-    }
-    df = pd.DataFrame(data)
+def generate_botnet(n):
+    """C&C beacon — few periodic packets, long-lived connections."""
+    rows = []
+    for i in range(n):
+        fwd_n = np.random.randint(1, 9)
+        bwd_n = np.random.randint(1, 6)
+        dur = np.random.exponential(30.0) + 5.0
+        iat = dur / max(fwd_n + bwd_n - 1, 1)
+        sp = np.random.randint(1024, 65536)
+        dp = int(np.random.choice([443, 8443, 4444, 5555, 6667]))
+        src, dst = "10.0.0.1", "192.168.1.1"
+
+        # Periodic beacons = very low jitter
+        fwd = _make_pkts(fwd_n, src, dst, sp, dp, "TCP",
+                         (50, 200), "PA", 0.0, iat, iat_jitter=0.1)
+        bwd = _make_pkts(bwd_n, dst, src, dp, sp, "TCP",
+                         (50, 300), "A", iat * 0.5, iat, iat_jitter=0.1)
+        flow = _build_flow(fwd, bwd, src, dst, sp, dp)
+        rows.append(_flow_features(flow))
+
+        if (i + 1) % 500 == 0:
+            print(f"    Botnet: {i + 1}/{n}")
+
+    df = pd.DataFrame(rows, columns=FEATURE_COLUMNS)
     df["Label"] = "Botnet"
     return df
 
 
-def generate_infiltration(n: int) -> pd.DataFrame:
-    """Generate infiltration/data exfiltration patterns."""
-    data = {
-        "Flow Duration": np.random.exponential(20000, n) + 3000,
-        "Total Fwd Packets": np.random.poisson(30, n) + 5,  # bulk data transfer
-        "Total Backward Packets": np.random.poisson(8, n) + 1,
-        "Total Length of Fwd Packets": np.random.exponential(50000, n) + 5000,  # large outbound
-        "Total Length of Bwd Packets": np.random.exponential(1000, n),
-        "Fwd Packet Length Max": np.random.exponential(1460, n) + 500,  # near MTU
-        "Fwd Packet Length Min": np.random.exponential(100, n),
-        "Fwd Packet Length Mean": np.random.exponential(1000, n) + 200,
-        "Fwd Packet Length Std": np.random.exponential(300, n),
-        "Bwd Packet Length Max": np.random.exponential(200, n),
-        "Bwd Packet Length Min": np.random.exponential(40, n),
-        "Bwd Packet Length Mean": np.random.exponential(80, n),
-        "Bwd Packet Length Std": np.random.exponential(40, n),
-        "Flow Bytes/s": np.random.exponential(100000, n),
-        "Flow Packets/s": np.random.exponential(30, n),
-        "Flow IAT Mean": np.random.exponential(500, n),
-        "Flow IAT Std": np.random.exponential(200, n),
-        "Flow IAT Max": np.random.exponential(3000, n),
-        "Flow IAT Min": np.random.exponential(5, n),
-        "Fwd IAT Mean": np.random.exponential(400, n),
-        "Fwd IAT Std": np.random.exponential(150, n),
-        "Fwd IAT Max": np.random.exponential(2000, n),
-        "Fwd IAT Min": np.random.exponential(2, n),
-        "Bwd IAT Mean": np.random.exponential(2000, n),
-        "Bwd IAT Std": np.random.exponential(1000, n),
-        "Bwd IAT Max": np.random.exponential(5000, n),
-        "Bwd IAT Min": np.random.exponential(100, n),
-        "Fwd Header Length": np.random.poisson(600, n),
-        "Bwd Header Length": np.random.poisson(160, n),
-        "Fwd Packets/s": np.random.exponential(25, n),
-        "Bwd Packets/s": np.random.exponential(5, n),
-        "Packet Length Mean": np.random.exponential(800, n) + 100,
-        "Packet Length Std": np.random.exponential(400, n),
-        "Packet Length Variance": np.random.exponential(150000, n),
-        "FIN Flag Count": np.random.binomial(1, 0.15, n),
-        "SYN Flag Count": np.random.binomial(1, 0.1, n),
-        "RST Flag Count": np.random.binomial(1, 0.03, n),
-        "PSH Flag Count": np.random.binomial(4, 0.7, n),
-        "ACK Flag Count": np.random.poisson(15, n),
-        "URG Flag Count": np.random.binomial(1, 0.02, n),
-    }
-    df = pd.DataFrame(data)
+def generate_infiltration(n):
+    """Data exfiltration — bulk outbound transfer near MTU."""
+    rows = []
+    for i in range(n):
+        fwd_n = np.random.randint(10, 101)
+        bwd_n = np.random.randint(2, 11)
+        dur = np.random.exponential(5.0) + 1.0
+        iat = dur / max(fwd_n + bwd_n - 1, 1)
+        sp = np.random.randint(1024, 65536)
+        dp = int(np.random.choice([443, 80, 21, 22]))
+        src, dst = "10.0.0.1", "192.168.1.1"
+
+        fwd = _make_pkts(fwd_n, src, dst, sp, dp, "TCP",
+                         (500, 1460), "PA", 0.0, iat)
+        bwd = _make_pkts(bwd_n, dst, src, dp, sp, "TCP",
+                         (40, 80), "A", iat * 0.5, iat * 3)
+        flow = _build_flow(fwd, bwd, src, dst, sp, dp)
+        rows.append(_flow_features(flow))
+
+        if (i + 1) % 200 == 0:
+            print(f"    Infiltration: {i + 1}/{n}")
+
+    df = pd.DataFrame(rows, columns=FEATURE_COLUMNS)
     df["Label"] = "Infiltration"
     return df
 
+
+# ======================== Main ========================
 
 def main():
     output_dir = os.path.join(os.path.dirname(__file__), "cicids2017")
     os.makedirs(output_dir, exist_ok=True)
 
-    print("Generating synthetic CICIDS2017 training data...")
+    print("Generating synthetic training data via FeatureExtractor...")
+    print("(This ensures training features match live inference exactly)\n")
 
-    # Class distribution (similar to real CICIDS2017 ratios)
     samples = {
         "BENIGN": 50000,
         "DoS": 8000,
@@ -417,13 +381,16 @@ def main():
     }
 
     all_data = []
-    for label, n in samples.items():
-        print(f"  Generating {n:>6} {label} samples...")
-        df = generators[label](n)
+    for label, count in samples.items():
+        print(f"  Generating {count:>6} {label} samples...")
+        t0 = _time.time()
+        df = generators[label](count)
+        elapsed = _time.time() - t0
+        print(f"    Done in {elapsed:.1f}s")
         all_data.append(df)
 
     combined = pd.concat(all_data, ignore_index=True)
-    combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)  # shuffle
+    combined = combined.sample(frac=1, random_state=42).reset_index(drop=True)
 
     # Ensure no negative values
     for col in FEATURE_COLUMNS:
@@ -436,6 +403,11 @@ def main():
     print(f"Saved to: {output_path}")
     print(f"\nClass distribution:")
     print(combined["Label"].value_counts().to_string())
+
+    print(f"\nFeature summary (first 5):")
+    for col in FEATURE_COLUMNS[:5]:
+        print(f"  {col:30s}: mean={combined[col].mean():12.4f}  "
+              f"std={combined[col].std():12.4f}")
 
 
 if __name__ == "__main__":

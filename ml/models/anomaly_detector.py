@@ -77,6 +77,9 @@ class AnomalyDetector:
         self.scaler = None  # StandardScaler for normalization
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._loaded = False
+        # Percentile-based IsoForest calibration (computed during training)
+        self.iso_baseline: float = 0.0   # median IF score on benign data
+        self.iso_scale: float = 1.0      # P99 - median spread
 
     def load(self) -> bool:
         """Load pre-trained models from disk."""
@@ -107,6 +110,14 @@ class AnomalyDetector:
             if os.path.exists(thresh_path):
                 self.ae_threshold = joblib.load(thresh_path)
 
+            # Load IsoForest calibration (percentile-based)
+            cal_path = os.path.join(model_dir, "iso_calibration.joblib")
+            if os.path.exists(cal_path):
+                cal = joblib.load(cal_path)
+                self.iso_baseline = cal["baseline"]
+                self.iso_scale = cal["scale"]
+                logger.info(f"IF calibration loaded: baseline={self.iso_baseline:.4f}, scale={self.iso_scale:.4f}")
+
             self._loaded = bool(self.isolation_forest or self.autoencoder)
             return self._loaded
 
@@ -136,12 +147,19 @@ class AnomalyDetector:
         else:
             features_scaled = features.reshape(1, -1)
 
-        # Isolation Forest score
+        # Clamp to prevent extreme OOD inputs from saturating models
+        features_scaled = np.clip(features_scaled, -10, 10)
+
+        # Isolation Forest score (percentile-calibrated)
         if self.isolation_forest is not None:
-            # score_samples returns negative scores; more negative = more anomalous
             iso_score = -self.isolation_forest.score_samples(features_scaled)[0]
-            # Normalize to 0-1 range (typical range is -0.5 to 0.5)
-            iso_normalized = min(max((iso_score + 0.5), 0.0), 1.0)
+            # Map so that: median benign → 0, P99 benign → 0.5,
+            # true anomalies (above P99) → 0.5-1.0
+            if self.iso_scale > 1e-10:
+                iso_normalized = (iso_score - self.iso_baseline) / (self.iso_scale * 2)
+            else:
+                iso_normalized = 0.0
+            iso_normalized = max(0.0, min(1.0, iso_normalized))
             scores.append(iso_normalized)
 
         # Autoencoder reconstruction error
@@ -173,5 +191,8 @@ class AnomalyDetector:
         if self.autoencoder:
             torch.save(self.autoencoder.state_dict(), os.path.join(save_dir, "autoencoder.pth"))
         joblib.dump(self.ae_threshold, os.path.join(save_dir, "ae_threshold.joblib"))
+        # Save IsoForest calibration
+        joblib.dump({"baseline": self.iso_baseline, "scale": self.iso_scale},
+                    os.path.join(save_dir, "iso_calibration.joblib"))
 
         logger.info(f"Anomaly detector models saved to {save_dir}")

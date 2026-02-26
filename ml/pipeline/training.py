@@ -22,6 +22,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 import joblib
+from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
 
 from ..config import config
 from ..models.anomaly_detector import Autoencoder, AnomalyDetector
@@ -51,6 +52,17 @@ def load_cicids_data(data_path: str) -> pd.DataFrame:
     # Clean column names
     data.columns = data.columns.str.strip()
 
+    # Drop non-numeric metadata columns that some CICIDS2017 exports include
+    # before the numeric flow features. Keeps only the label column + numeric
+    # feature columns so that positions 0-39 after label removal are guaranteed
+    # to be numeric flow features matching FeatureExtractor output order.
+    non_feature_cols = {"Flow ID", "Source IP", "Destination IP", "Timestamp",
+                        "Source Port", "Destination Port", "Protocol"}
+    cols_to_drop = [c for c in data.columns if c in non_feature_cols]
+    if cols_to_drop:
+        logger.info(f"Dropping non-feature metadata columns: {cols_to_drop}")
+        data.drop(columns=cols_to_drop, inplace=True)
+
     # Handle infinities and NaN
     data.replace([np.inf, -np.inf], np.nan, inplace=True)
     data.dropna(inplace=True)
@@ -69,12 +81,12 @@ def train_anomaly_detector(data: pd.DataFrame, save_dir: str):
     feature_cols = [c for c in data.columns if c != label_col]
     X_normal = normal_data[feature_cols].values.astype(np.float32)
 
-    # Pad/trim to expected feature count
+    # Use only the first feature_count (40) columns to match FeatureExtractor
+    # output at inference time, then zero-pad to total_features (80).
+    X_normal = X_normal[:, :config.feature_count]
     if X_normal.shape[1] < config.total_features:
         padding = np.zeros((X_normal.shape[0], config.total_features - X_normal.shape[1]))
         X_normal = np.hstack([X_normal, padding])
-    else:
-        X_normal = X_normal[:, :config.total_features]
 
     # Scale
     scaler = StandardScaler()
@@ -127,12 +139,21 @@ def train_anomaly_detector(data: pd.DataFrame, save_dir: str):
     threshold = float(np.percentile(val_errors, 95))
     logger.info(f"Autoencoder threshold: {threshold:.6f}")
 
+    # Compute IsoForest calibration on benign training data
+    benign_scores = -iso_forest.score_samples(X_train)
+    iso_baseline = float(np.median(benign_scores))
+    iso_p99 = float(np.percentile(benign_scores, 99))
+    iso_scale = iso_p99 - iso_baseline
+    logger.info(f"IF calibration: baseline={iso_baseline:.4f}, P99={iso_p99:.4f}, scale={iso_scale:.4f}")
+
     # Save
     detector = AnomalyDetector()
     detector.isolation_forest = iso_forest
     detector.autoencoder = autoencoder
     detector.scaler = scaler
     detector.ae_threshold = threshold
+    detector.iso_baseline = iso_baseline
+    detector.iso_scale = iso_scale
     detector.save(save_dir)
 
     logger.info("Anomaly detector training complete")
@@ -148,12 +169,12 @@ def train_attack_classifier(data: pd.DataFrame, save_dir: str):
     X = data[feature_cols].values.astype(np.float32)
     y = data[label_col].str.strip().values
 
-    # Pad/trim features
+    # Use only the first feature_count (40) columns to match FeatureExtractor
+    # output at inference time, then zero-pad to total_features (80).
+    X = X[:, :config.feature_count]
     if X.shape[1] < config.total_features:
         padding = np.zeros((X.shape[0], config.total_features - X.shape[1]))
         X = np.hstack([X, padding])
-    else:
-        X = X[:, :config.total_features]
 
     # Encode labels
     le = LabelEncoder()
@@ -195,6 +216,11 @@ def train_attack_classifier(data: pd.DataFrame, save_dir: str):
     logger.info(f"\nClassification Report:\n{report}")
     logger.info(f"Weighted F1: {f1:.4f}")
 
+    # Firewall-relevant binary metrics (benign vs any attack)
+    y_test_bin = (y_test > 0).astype(int)  # class 0 = Benign
+    y_pred_bin = (y_pred > 0).astype(int)
+    _log_firewall_metrics("XGBoost Classifier", y_test_bin, y_pred_bin)
+
     # Save
     classifier = AttackClassifier()
     classifier.model = model
@@ -216,12 +242,12 @@ def train_lstm_cnn(data: pd.DataFrame, save_dir: str):
     y_raw = data[label_col].str.strip().str.upper().values
     y = (y_raw != "BENIGN").astype(np.float32)  # binary: 0=normal, 1=anomalous
 
-    # Pad/trim
+    # Use only the first feature_count (40) columns to match FeatureExtractor
+    # output at inference time, then zero-pad to total_features (80).
+    X = X[:, :config.feature_count]
     if X.shape[1] < config.total_features:
         padding = np.zeros((X.shape[0], config.total_features - X.shape[1]))
         X = np.hstack([X, padding])
-    else:
-        X = X[:, :config.total_features]
 
     # Scale
     scaler = StandardScaler()
@@ -239,9 +265,14 @@ def train_lstm_cnn(data: pd.DataFrame, save_dir: str):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
     criterion = nn.BCELoss()
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, factor=0.5)
+
+    # LSTM+CNN converges fast on flow features — cap at 20 epochs to keep
+    # CPU training time reasonable (~10 min) while still reaching <0.002 loss.
+    lstm_epochs = min(config.epochs, 20)
 
     model.train()
-    for epoch in range(config.epochs):
+    for epoch in range(lstm_epochs):
         total_loss = 0
         for batch_x, batch_y in train_loader:
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
@@ -252,8 +283,10 @@ def train_lstm_cnn(data: pd.DataFrame, save_dir: str):
             optimizer.step()
             total_loss += loss.item()
 
-        if (epoch + 1) % 10 == 0:
-            logger.info(f"Epoch {epoch+1}/{config.epochs}, Loss: {total_loss/len(train_loader):.4f}")
+        avg_loss = total_loss / len(train_loader)
+        scheduler.step(avg_loss)
+        if (epoch + 1) % 5 == 0:
+            logger.info(f"Epoch {epoch+1}/{lstm_epochs}, Loss: {avg_loss:.6f}")
 
     # Evaluate
     model.eval()
@@ -263,10 +296,43 @@ def train_lstm_cnn(data: pd.DataFrame, save_dir: str):
         accuracy = (preds == y_test).mean()
         logger.info(f"LSTM+CNN Accuracy: {accuracy:.4f}")
 
-    # Save
-    os.makedirs(save_dir, exist_ok=True)
-    torch.save(model.state_dict(), os.path.join(save_dir, "lstm_cnn.pth"))
+    # Firewall-relevant binary metrics
+    _log_firewall_metrics("LSTM+CNN", y_test.astype(int), preds.flatten())
+
+    # Save model + scaler
+    from ..models.lstm_cnn import LSTMCNNDetector
+    detector = LSTMCNNDetector()
+    detector.model = model
+    detector.scaler = scaler
+    detector.save(save_dir)
     logger.info("LSTM+CNN training complete")
+
+
+def _log_firewall_metrics(model_name: str, y_true: np.ndarray, y_pred: np.ndarray):
+    """Log firewall-specific metrics for binary classification."""
+    tn = int(np.sum((y_true == 0) & (y_pred == 0)))
+    fp = int(np.sum((y_true == 0) & (y_pred == 1)))
+    fn = int(np.sum((y_true == 1) & (y_pred == 0)))
+    tp = int(np.sum((y_true == 1) & (y_pred == 1)))
+
+    detection_rate = tp / max(tp + fn, 1)
+    fpr = fp / max(fp + tn, 1)
+    fnr = fn / max(fn + tp, 1)
+    precision = tp / max(tp + fp, 1)
+    recall = detection_rate
+    f1 = 2 * precision * recall / max(precision + recall, 1e-9)
+
+    logger.info(f"\n{'=' * 55}")
+    logger.info(f"  {model_name} — Firewall Metrics")
+    logger.info(f"{'=' * 55}")
+    logger.info(f"  Detection Rate (TPR):  {detection_rate:.4f}")
+    logger.info(f"  False Positive Rate:   {fpr:.4f}")
+    logger.info(f"  False Negative Rate:   {fnr:.4f}")
+    logger.info(f"  Precision:             {precision:.4f}")
+    logger.info(f"  Recall:                {recall:.4f}")
+    logger.info(f"  F1-Score:              {f1:.4f}")
+    logger.info(f"  TP={tp}  TN={tn}  FP={fp}  FN={fn}")
+    logger.info(f"{'=' * 55}")
 
 
 def main():

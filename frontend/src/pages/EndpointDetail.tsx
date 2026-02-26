@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Server,
@@ -18,6 +18,8 @@ import { Button } from '../components/ui/Button';
 import { Skeleton, StatCardSkeleton } from '../components/ui/Skeleton';
 import { endpointService } from '../services/endpoint.service';
 import type { Endpoint, Application, Alert } from '../types';
+
+const POLL_INTERVAL_MS = 30_000; // auto-refresh every 30 seconds
 
 const statusConfig: Record<
   Endpoint['status'],
@@ -47,24 +49,50 @@ const EndpointDetail: React.FC = () => {
   const [endpoint, setEndpoint] = useState<Endpoint | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const pollTimer = useRef<ReturnType<typeof setInterval>>();
 
-  useEffect(() => {
+  const fetchEndpoint = useCallback(async (silent = false) => {
     if (!id) return;
-    const fetchEndpoint = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await endpointService.getById(id);
-        setEndpoint(data);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Failed to fetch endpoint details';
-        setError(message);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchEndpoint();
+    try {
+      if (!silent) setLoading(true);
+      setError(null);
+      const data = await endpointService.getById(id);
+      setEndpoint((prev) => {
+        if (prev && prev.status !== data.status) {
+          console.info(
+            '[EndpointDetail] Status changed: %s → %s',
+            prev.status, data.status
+          );
+        }
+        if (prev) {
+          console.debug(
+            '[EndpointDetail] Refreshed: apps=%d, alerts=%d, traffic=%d',
+            data.applications?.length ?? 0,
+            data.recent_alerts?.length ?? 0,
+            data.traffic_logs ?? 0
+          );
+        }
+        return data;
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch endpoint details';
+      console.error('[EndpointDetail] Fetch error:', message);
+      setError(message);
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }, [id]);
+
+  // Initial fetch + polling
+  useEffect(() => {
+    fetchEndpoint();
+    pollTimer.current = setInterval(() => fetchEndpoint(true), POLL_INTERVAL_MS);
+    console.debug('[EndpointDetail] Polling started for id=%s', id);
+    return () => {
+      clearInterval(pollTimer.current);
+      console.debug('[EndpointDetail] Polling stopped');
+    };
+  }, [fetchEndpoint, id]);
 
   if (loading) {
     return (

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -20,6 +20,8 @@ import { Skeleton, TableSkeleton } from '../components/ui/Skeleton';
 import { endpointService } from '../services/endpoint.service';
 import type { Endpoint } from '../types';
 
+const POLL_INTERVAL_MS = 30_000; // auto-refresh every 30 seconds
+
 const statusConfig: Record<Endpoint['status'], { variant: 'success' | 'danger' | 'warning'; icon: React.ReactNode }> = {
   active: { variant: 'success', icon: <Wifi size={14} /> },
   inactive: { variant: 'danger', icon: <WifiOff size={14} /> },
@@ -37,25 +39,51 @@ const Endpoints: React.FC = () => {
   const [addAppModal, setAddAppModal] = useState(false);
   const [selectedEndpointId, setSelectedEndpointId] = useState<string | null>(null);
   const [appName, setAppName] = useState('');
+  const [processName, setProcessName] = useState('');
   const [addingApp, setAddingApp] = useState(false);
 
-  useEffect(() => {
-    fetchEndpoints();
-  }, []);
+  // Polling ref to avoid stale closures
+  const pollTimer = useRef<ReturnType<typeof setInterval>>();
 
-  const fetchEndpoints = async () => {
+  const fetchEndpoints = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
       const data = await endpointService.getAll();
-      setEndpoints(data);
+      setEndpoints((prev) => {
+        // Log status changes for debugging
+        if (prev.length > 0) {
+          data.forEach((ep) => {
+            const old = prev.find((p) => p.id === ep.id);
+            if (old && old.status !== ep.status) {
+              console.info(
+                '[Endpoints] Status changed: %s (%s) %s → %s',
+                ep.name, ep.ip_address, old.status, ep.status
+              );
+            }
+          });
+        }
+        return data;
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to fetch endpoints';
+      console.error('[Endpoints] Fetch error:', message);
       setError(message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  };
+  }, []);
+
+  // Initial fetch + polling
+  useEffect(() => {
+    fetchEndpoints();
+    pollTimer.current = setInterval(() => fetchEndpoints(true), POLL_INTERVAL_MS);
+    console.debug('[Endpoints] Polling started (interval=%dms)', POLL_INTERVAL_MS);
+    return () => {
+      clearInterval(pollTimer.current);
+      console.debug('[Endpoints] Polling stopped');
+    };
+  }, [fetchEndpoints]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return endpoints;
@@ -72,13 +100,15 @@ const Endpoints: React.FC = () => {
     if (!selectedEndpointId || !appName.trim()) return;
     try {
       setAddingApp(true);
-      await endpointService.addApp(selectedEndpointId, appName.trim());
+      await endpointService.addApp(selectedEndpointId, appName.trim(), processName.trim() || undefined);
       setAddAppModal(false);
       setAppName('');
+      setProcessName('');
       setSelectedEndpointId(null);
       await fetchEndpoints();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to add application';
+      console.error('[Endpoints] Add app error:', message);
       setError(message);
     } finally {
       setAddingApp(false);
@@ -252,6 +282,13 @@ const Endpoints: React.FC = () => {
             value={appName}
             onChange={(e) => setAppName(e.target.value)}
             icon={<AppWindow size={16} />}
+          />
+          <Input
+            label="Process Name (optional)"
+            placeholder="e.g., nginx.exe — auto-generated if empty"
+            value={processName}
+            onChange={(e) => setProcessName(e.target.value)}
+            icon={<Server size={16} />}
           />
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="secondary" onClick={() => setAddAppModal(false)}>

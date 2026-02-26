@@ -42,3 +42,12 @@ class NLPPolicyParseResponse(BaseModel):
     parsed: Dict[str, Any]
     confidence: float
     explanation: str
+    # Extended fields for intelligent firewall actions
+    rule_type: str = Field(
+        default="basic",
+        description="Rule category: basic, anomaly, attack, rate_limit, isolation, monitor, time_access",
+    )
+    capabilities_used: List[str] = Field(
+        default_factory=list,
+        description="List of intelligent capabilities detected in the policy",
+    )

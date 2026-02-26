@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     CORS_ORIGINS: str = "http://localhost:3000"
 
+    # Shared secret for ML engine → backend service-to-service calls.
+    # Must match the ML_API_KEY env-var on the ML engine side.
+    ML_API_KEY: str = "change-me-in-production"
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]

@@ -2,15 +2,25 @@
 Firewall rule enforcement.
 Actually blocks/allows traffic using OS-level firewall commands.
 Supports Windows (netsh) and Linux (iptables).
+
+Extended actions: rate limiting, endpoint isolation, monitoring.
 """
 
+import re
 import sys
 import subprocess
 import logging
 import time
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Set
+from collections import defaultdict
 from dataclasses import dataclass, field
-from threading import Timer
+from threading import Timer, Lock
+
+# Strict regex: bare IPv4 or IPv6 address only — no CIDR, no spaces.
+_IPV4_RE = re.compile(
+    r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$"
+)
+_IPV6_RE = re.compile(r"^[0-9a-fA-F:]+$")  # coarse check; good enough to prevent injection
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +36,49 @@ class BlockRule:
     reason: str = ""
 
 
+@dataclass
+class IsolationRule:
+    """An active endpoint isolation rule."""
+    target: str  # IP or hostname
+    scope: str  # "endpoint" or "subnet"
+    rule_name: str
+    created_at: float
+    expires_at: Optional[float] = None
+    reason: str = ""
+    allowed_ips: List[str] = field(default_factory=list)  # management IPs still allowed
+
+
+@dataclass
+class RateLimitEntry:
+    """Tracks request counts for rate limiting."""
+    timestamps: List[float] = field(default_factory=list)
+    limit: int = 100
+    window: int = 60  # seconds
+    action: str = "block"  # "block", "alert", "throttle"
+
+
+@dataclass
+class MonitorEntry:
+    """An active monitoring rule."""
+    target: str
+    mode: str  # "log_only", "alert_admin", "dashboard"
+    created_at: float
+    expires_at: Optional[float] = None
+    logged_events: int = 0
+
+
 class FirewallEnforcer:
-    """Cross-platform firewall rule management."""
+    """Cross-platform firewall rule management with extended actions."""
 
     def __init__(self, default_block_duration: int = 300):
         self.default_block_duration = default_block_duration
         self.active_rules: Dict[str, BlockRule] = {}
+        self.isolation_rules: Dict[str, IsolationRule] = {}
+        self.rate_limiters: Dict[str, RateLimitEntry] = {}
+        self.monitors: Dict[str, MonitorEntry] = {}
         self.platform = "windows" if sys.platform == "win32" else "linux"
         self._timers: Dict[str, Timer] = {}
+        self._lock = Lock()
 
     def block_ip(
         self,
@@ -56,6 +101,13 @@ class FirewallEnforcer:
         if ip in self.active_rules:
             logger.debug(f"IP {ip} already blocked")
             return True
+
+        # Validate IP address to prevent injection via attacker-controlled
+        # packet data.  Only bare IPv4/IPv6 addresses are accepted — no
+        # CIDR notation, wildcards, or embedded whitespace.
+        if not (_IPV4_RE.match(ip) or _IPV6_RE.match(ip)):
+            logger.warning(f"Refusing to block invalid IP: {ip!r}")
+            return False
 
         rule_name = f"GuardianShield_Block_{ip.replace('.', '_')}"
         dur = duration or self.default_block_duration
@@ -186,6 +238,337 @@ class FirewallEnforcer:
         """Remove all active rules (called on shutdown)."""
         for ip in list(self.active_rules.keys()):
             self.unblock_ip(ip)
+        for target in list(self.isolation_rules.keys()):
+            self.unisolate_endpoint(target)
         for timer in self._timers.values():
             timer.cancel()
         self._timers.clear()
+        self.rate_limiters.clear()
+        self.monitors.clear()
+
+    # ============ Endpoint Isolation ============
+
+    def isolate_endpoint(
+        self,
+        target_ip: str,
+        scope: str = "endpoint",
+        duration: Optional[int] = None,
+        reason: str = "",
+        allowed_ips: Optional[List[str]] = None,
+    ) -> bool:
+        """
+        Isolate an endpoint by blocking all traffic except management IPs.
+
+        Args:
+            target_ip: IP to isolate
+            scope: "endpoint" (single host) or "subnet" (block entire /24)
+            duration: Isolation duration in seconds (None = permanent)
+            reason: Reason for isolation
+            allowed_ips: IPs still allowed to communicate (e.g., management server)
+
+        Returns: True if isolation was applied successfully
+        """
+        if target_ip in self.isolation_rules:
+            logger.debug(f"Endpoint {target_ip} already isolated")
+            return True
+
+        if not (_IPV4_RE.match(target_ip) or _IPV6_RE.match(target_ip)):
+            logger.warning(f"Refusing to isolate invalid IP: {target_ip!r}")
+            return False
+
+        rule_name = f"GuardianShield_Isolate_{target_ip.replace('.', '_')}"
+        allowed = allowed_ips or []
+
+        try:
+            if self.platform == "windows":
+                success = self._isolate_windows(target_ip, rule_name, scope, allowed)
+            else:
+                success = self._isolate_linux(target_ip, scope, allowed)
+
+            if success:
+                now = time.time()
+                dur = duration or self.default_block_duration
+                self.isolation_rules[target_ip] = IsolationRule(
+                    target=target_ip,
+                    scope=scope,
+                    rule_name=rule_name,
+                    created_at=now,
+                    expires_at=now + dur if dur else None,
+                    reason=reason,
+                    allowed_ips=allowed,
+                )
+
+                if dur:
+                    timer = Timer(dur, self._expire_isolation, args=[target_ip])
+                    timer.daemon = True
+                    timer.start()
+                    self._timers[f"iso_{target_ip}"] = timer
+
+                logger.info(f"Isolated endpoint {target_ip} ({scope}) for {dur}s: {reason}")
+                return True
+
+        except Exception as e:
+            logger.error(f"Failed to isolate {target_ip}: {e}")
+
+        return False
+
+    def unisolate_endpoint(self, target_ip: str) -> bool:
+        """Remove isolation for an endpoint."""
+        if target_ip not in self.isolation_rules:
+            return True
+
+        rule = self.isolation_rules[target_ip]
+
+        try:
+            if self.platform == "windows":
+                success = self._unblock_windows(rule.rule_name)
+                # Also remove allow rules
+                subprocess.run(
+                    ["netsh", "advfirewall", "firewall", "delete", "rule",
+                     f"name={rule.rule_name}_allow"],
+                    capture_output=True, text=True,
+                )
+            else:
+                success = self._unisolate_linux(target_ip, rule.scope)
+
+            if success:
+                del self.isolation_rules[target_ip]
+                timer_key = f"iso_{target_ip}"
+                if timer_key in self._timers:
+                    self._timers[timer_key].cancel()
+                    del self._timers[timer_key]
+                logger.info(f"Removed isolation for {target_ip}")
+                return True
+
+        except Exception as e:
+            logger.error(f"Failed to unisolate {target_ip}: {e}")
+
+        return False
+
+    def _expire_isolation(self, target_ip: str):
+        """Called when endpoint isolation expires."""
+        logger.info(f"Isolation expired for {target_ip}")
+        self.unisolate_endpoint(target_ip)
+
+    def _isolate_windows(self, ip: str, rule_name: str, scope: str, allowed_ips: List[str]) -> bool:
+        """Isolate endpoint on Windows using netsh."""
+        remote_ip = ip
+        if scope == "subnet":
+            parts = ip.split(".")
+            if len(parts) == 4:
+                remote_ip = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+
+        # Block all outbound to/from target
+        result = subprocess.run(
+            ["netsh", "advfirewall", "firewall", "add", "rule",
+             f"name={rule_name}", "dir=out", "action=block",
+             f"remoteip={remote_ip}", "protocol=any"],
+            capture_output=True, text=True,
+        )
+        # Block inbound too
+        subprocess.run(
+            ["netsh", "advfirewall", "firewall", "add", "rule",
+             f"name={rule_name}_in", "dir=in", "action=block",
+             f"remoteip={remote_ip}", "protocol=any"],
+            capture_output=True, text=True,
+        )
+        # Allow management IPs
+        for mgmt_ip in allowed_ips:
+            if _IPV4_RE.match(mgmt_ip):
+                subprocess.run(
+                    ["netsh", "advfirewall", "firewall", "add", "rule",
+                     f"name={rule_name}_allow", "dir=out", "action=allow",
+                     f"remoteip={mgmt_ip}", "protocol=any"],
+                    capture_output=True, text=True,
+                )
+
+        return result.returncode == 0
+
+    def _isolate_linux(self, ip: str, scope: str, allowed_ips: List[str]) -> bool:
+        """Isolate endpoint on Linux using iptables."""
+        target = ip
+        if scope == "subnet":
+            parts = ip.split(".")
+            if len(parts) == 4:
+                target = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+
+        # Allow management first (order matters in iptables)
+        for mgmt_ip in allowed_ips:
+            subprocess.run(
+                ["iptables", "-I", "OUTPUT", "-d", mgmt_ip, "-j", "ACCEPT"],
+                capture_output=True, text=True,
+            )
+        # Block all traffic to target
+        result = subprocess.run(
+            ["iptables", "-A", "OUTPUT", "-d", target, "-j", "DROP"],
+            capture_output=True, text=True,
+        )
+        subprocess.run(
+            ["iptables", "-A", "INPUT", "-s", target, "-j", "DROP"],
+            capture_output=True, text=True,
+        )
+        return result.returncode == 0
+
+    def _unisolate_linux(self, ip: str, scope: str) -> bool:
+        """Remove isolation on Linux."""
+        target = ip
+        if scope == "subnet":
+            parts = ip.split(".")
+            if len(parts) == 4:
+                target = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+        subprocess.run(
+            ["iptables", "-D", "OUTPUT", "-d", target, "-j", "DROP"],
+            capture_output=True, text=True,
+        )
+        result = subprocess.run(
+            ["iptables", "-D", "INPUT", "-s", target, "-j", "DROP"],
+            capture_output=True, text=True,
+        )
+        return result.returncode == 0
+
+    # ============ Rate Limiting ============
+
+    def check_rate_limit(
+        self,
+        key: str,
+        limit: int = 100,
+        window: int = 60,
+        action: str = "block",
+    ) -> dict:
+        """
+        Check if a rate limit is exceeded for a given key (e.g., IP).
+
+        Returns:
+            {"exceeded": bool, "current_count": int, "action": str}
+        """
+        with self._lock:
+            now = time.time()
+
+            if key not in self.rate_limiters:
+                self.rate_limiters[key] = RateLimitEntry(
+                    limit=limit, window=window, action=action,
+                )
+
+            entry = self.rate_limiters[key]
+            # Prune timestamps outside the window
+            entry.timestamps = [t for t in entry.timestamps if now - t < window]
+            entry.timestamps.append(now)
+
+            exceeded = len(entry.timestamps) > limit
+            return {
+                "exceeded": exceeded,
+                "current_count": len(entry.timestamps),
+                "limit": limit,
+                "window": window,
+                "action": action if exceeded else "allow",
+            }
+
+    def set_rate_limit(
+        self,
+        key: str,
+        limit: int,
+        window: int = 60,
+        action: str = "block",
+    ):
+        """Configure a rate limit for a key."""
+        with self._lock:
+            self.rate_limiters[key] = RateLimitEntry(
+                limit=limit, window=window, action=action,
+            )
+        logger.info(f"Rate limit set for {key}: {limit}/{window}s → {action}")
+
+    # ============ Monitoring ============
+
+    def add_monitor(
+        self,
+        target: str,
+        mode: str = "dashboard",
+        duration: Optional[int] = None,
+    ):
+        """Add a monitoring rule for a target."""
+        now = time.time()
+        self.monitors[target] = MonitorEntry(
+            target=target,
+            mode=mode,
+            created_at=now,
+            expires_at=now + duration if duration else None,
+        )
+        logger.info(f"Monitoring {target} in '{mode}' mode")
+
+        if duration:
+            timer = Timer(duration, self._expire_monitor, args=[target])
+            timer.daemon = True
+            timer.start()
+            self._timers[f"mon_{target}"] = timer
+
+    def log_monitored_event(self, target: str, event: dict):
+        """Log an event for a monitored target."""
+        if target in self.monitors:
+            entry = self.monitors[target]
+            entry.logged_events += 1
+            logger.info(f"[MONITOR:{entry.mode}] {target}: {event}")
+            return True
+        return False
+
+    def _expire_monitor(self, target: str):
+        """Remove an expired monitor."""
+        if target in self.monitors:
+            entry = self.monitors[target]
+            logger.info(f"Monitor expired for {target} ({entry.logged_events} events logged)")
+            del self.monitors[target]
+
+    # ============ Status ============
+
+    def get_active_rules(self) -> list:
+        """Get all active block rules."""
+        now = time.time()
+        return [
+            {
+                "ip": r.ip,
+                "app_name": r.app_name,
+                "reason": r.reason,
+                "created_at": r.created_at,
+                "expires_in": int(r.expires_at - now) if r.expires_at else None,
+                "permanent": r.expires_at is None,
+            }
+            for r in self.active_rules.values()
+        ]
+
+    def get_extended_status(self) -> dict:
+        """Get full status including isolation, rate limits, and monitors."""
+        now = time.time()
+        return {
+            "block_rules": self.get_active_rules(),
+            "isolation_rules": [
+                {
+                    "target": r.target,
+                    "scope": r.scope,
+                    "reason": r.reason,
+                    "created_at": r.created_at,
+                    "expires_in": int(r.expires_at - now) if r.expires_at else None,
+                    "allowed_ips": r.allowed_ips,
+                }
+                for r in self.isolation_rules.values()
+            ],
+            "rate_limiters": {
+                key: {
+                    "limit": entry.limit,
+                    "window": entry.window,
+                    "current_count": len([
+                        t for t in entry.timestamps if now - t < entry.window
+                    ]),
+                    "action": entry.action,
+                }
+                for key, entry in self.rate_limiters.items()
+            },
+            "monitors": [
+                {
+                    "target": m.target,
+                    "mode": m.mode,
+                    "logged_events": m.logged_events,
+                    "created_at": m.created_at,
+                    "expires_in": int(m.expires_at - now) if m.expires_at else None,
+                }
+                for m in self.monitors.values()
+            ],
+        }

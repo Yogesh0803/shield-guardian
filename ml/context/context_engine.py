@@ -94,6 +94,24 @@ class FlowContext:
         padded[:len(combined)] = combined
         return padded
 
+    def to_model_features(self) -> np.ndarray:
+        """
+        Return feature vector suitable for ML models trained on CICIDS2017.
+
+        Uses only the 40 flow-level network features (from FeatureExtractor),
+        padded to config.total_features (80) with zeros. This matches the
+        feature layout used during training — positions 0-39 are network
+        features and positions 40-79 are zero-padding, exactly as the
+        training pipeline pads/trims CICIDS2017 columns.
+
+        Context features (app, time, behavioral, geo) are NOT included here;
+        they are used separately by the context-based heuristic scorer.
+        """
+        padded = np.zeros(config.total_features, dtype=np.float32)
+        n = min(len(self.flow_features), config.total_features)
+        padded[:n] = self.flow_features[:n]
+        return padded
+
     def to_dict(self) -> dict:
         """Convert to dictionary for API responses."""
         return {

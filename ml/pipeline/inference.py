@@ -5,6 +5,7 @@ This is the main entry point for analyzing network traffic.
 
 import logging
 import time
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
@@ -63,10 +64,13 @@ class InferencePipeline:
         self.attack_classifier = AttackClassifier()
         self.lstm_cnn = LSTMCNNDetector()
 
-        # Stats
+        # Stats (guarded by _stats_lock for cross-thread access)
+        self._stats_lock = threading.Lock()
         self.total_predictions = 0
         self.total_blocked = 0
         self.total_alerts = 0
+        self.total_anomalies_detected = 0
+        self.total_attacks_classified = 0
         self._start_time = time.time()
 
     def load_models(self) -> dict:
@@ -80,49 +84,77 @@ class InferencePipeline:
 
     @property
     def models_loaded(self) -> list:
-        """List of loaded model names."""
+        """List of loaded model keys.
+
+        Returns machine-readable identifiers that match the frontend
+        ``modelInfo`` keys so the dashboard can map them to UI cards.
+        """
         loaded = []
         if self.anomaly_detector.is_loaded:
-            loaded.append("Isolation Forest + Autoencoder")
+            # The anomaly detector bundles Isolation Forest + Autoencoder;
+            # expose both as separate keys for the frontend.
+            loaded.append("isolation_forest")
+            loaded.append("autoencoder")
         if self.attack_classifier.is_loaded:
-            loaded.append("XGBoost Classifier")
+            loaded.append("xgboost")
         if self.lstm_cnn.is_loaded:
-            loaded.append("LSTM+CNN")
+            loaded.append("lstm_cnn")
         return loaded
 
     @property
     def predictions_per_minute(self) -> float:
         elapsed = (time.time() - self._start_time) / 60.0
-        return self.total_predictions / max(elapsed, 0.01)
+        with self._stats_lock:
+            count = self.total_predictions
+        return count / max(elapsed, 0.01)
 
     def analyze(self, flow: Flow) -> Prediction:
         """
         Analyze a network flow through the full pipeline.
 
         Returns a Prediction with anomaly score, attack type, and recommended action.
+        Exceptions are intentionally NOT caught here so callers see failures.
         """
         # 1. Build context
+        logger.debug(
+            f"Analyzing flow {flow.flow_id} "
+            f"({flow.packet_count} pkts, {flow.total_bytes} bytes)"
+        )
         context = self.context_engine.build_context(flow)
-        features = context.to_feature_vector()
+
+        # Use flow-only features for ML models (matches CICIDS2017 training layout)
+        model_features = context.to_model_features()
 
         # 2. Run anomaly detection ensemble
-        scores = []
+        #    Weights are normalised so the score reaches full [0, 1]
+        #    even when some ML models are not loaded.
+        raw_scores = []
+        total_weight = 0.0
 
         # Isolation Forest + Autoencoder
         if self.anomaly_detector.is_loaded:
-            iso_ae_score, _ = self.anomaly_detector.predict(features)
-            scores.append(iso_ae_score * 0.4)  # 40% weight
+            iso_ae_score, _ = self.anomaly_detector.predict(model_features)
+            raw_scores.append((iso_ae_score, 0.4))
+            total_weight += 0.4
 
         # LSTM+CNN
         if self.lstm_cnn.is_loaded:
-            lstm_score, _ = self.lstm_cnn.predict(features)
-            scores.append(lstm_score * 0.3)  # 30% weight
+            lstm_score, _ = self.lstm_cnn.predict(model_features)
+            raw_scores.append((lstm_score, 0.3))
+            total_weight += 0.3
 
         # Context-based anomaly score (from behavioral deviations)
         context_score = self._context_anomaly_score(context)
-        scores.append(context_score * 0.3)  # 30% weight
+        raw_scores.append((context_score, 0.3))
+        total_weight += 0.3
 
-        anomaly_score = sum(scores) if scores else context_score
+        # Normalise weights so they sum to 1.0 regardless of which
+        # models are loaded.  This ensures context-only mode can
+        # still reach anomaly_threshold_medium / _high.
+        if total_weight > 0:
+            anomaly_score = sum(s * w for s, w in raw_scores) / total_weight
+        else:
+            anomaly_score = context_score
         anomaly_score = min(max(anomaly_score, 0.0), 1.0)
         is_anomaly = anomaly_score > config.anomaly_threshold_medium
 
@@ -131,7 +163,7 @@ class InferencePipeline:
         confidence = 1.0 - anomaly_score
 
         if is_anomaly and self.attack_classifier.is_loaded:
-            attack_type, confidence = self.attack_classifier.predict(features)
+            attack_type, confidence = self.attack_classifier.predict(model_features)
         elif is_anomaly:
             attack_type = "Unknown"
             confidence = anomaly_score
@@ -140,11 +172,22 @@ class InferencePipeline:
         action = self._determine_action(anomaly_score, confidence, attack_type, context)
 
         # Update stats
-        self.total_predictions += 1
-        if action == "block":
-            self.total_blocked += 1
-        elif action == "alert":
-            self.total_alerts += 1
+        with self._stats_lock:
+            self.total_predictions += 1
+            if is_anomaly:
+                self.total_anomalies_detected += 1
+            if is_anomaly and attack_type != "Benign" and attack_type != "Unknown":
+                self.total_attacks_classified += 1
+            if action == "block":
+                self.total_blocked += 1
+            elif action == "alert":
+                self.total_alerts += 1
+
+        logger.debug(
+            f"Prediction #{self.total_predictions}: "
+            f"score={anomaly_score:.3f}, type={attack_type}, "
+            f"action={action}, confidence={confidence:.3f}"
+        )
 
         return Prediction(
             anomaly_score=anomaly_score,
@@ -203,24 +246,41 @@ class InferencePipeline:
         # Medium anomaly
         if anomaly_score > config.anomaly_threshold_medium:
             # Block if it's a known dangerous attack type with decent confidence
-            if attack_type in ("DDoS", "DoS", "BruteForce") and confidence > 0.7:
+            if attack_type in ("DDoS", "DoS", "BruteForce", "PortScan") and confidence > 0.7:
                 return "block"
             return "alert"
 
         return "allow"
 
     def get_status(self) -> dict:
-        """Get ML engine status."""
+        """Get ML engine status with live metrics."""
+        with self._stats_lock:
+            total = self.total_predictions
+            blocked = self.total_blocked
+            alerts = self.total_alerts
+            anomalies = self.total_anomalies_detected
+            attacks = self.total_attacks_classified
+
+        # Compute detection rates from actual predictions
+        if total > 0:
+            anomaly_detection_rate = round(anomalies / total, 4)
+            classification_rate = round(attacks / max(anomalies, 1), 4)
+        else:
+            anomaly_detection_rate = 0.0
+            classification_rate = 0.0
+
         return {
             "is_running": True,
             "models_loaded": self.models_loaded,
             "predictions_per_minute": round(self.predictions_per_minute, 1),
-            "total_predictions": self.total_predictions,
-            "total_blocked": self.total_blocked,
-            "total_alerts": self.total_alerts,
-            "accuracy": {
-                "anomaly_detector": 0.956 if self.anomaly_detector.is_loaded else 0.0,
-                "attack_classifier": 0.972 if self.attack_classifier.is_loaded else 0.0,
+            "total_predictions": total,
+            "total_blocked": blocked,
+            "total_alerts": alerts,
+            "total_anomalies_detected": anomalies,
+            "total_attacks_classified": attacks,
+            "detection_rates": {
+                "anomaly_detection_rate": anomaly_detection_rate,
+                "attack_classification_rate": classification_rate,
             },
             "last_retrain": None,
         }

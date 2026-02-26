@@ -164,6 +164,7 @@ export interface MLStatus {
   };
   total_predictions: number;
   total_blocked: number;
+  total_alerts: number;
 }
 
 // ==================== Attack ====================

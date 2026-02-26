@@ -73,6 +73,9 @@ class AttackClassifier:
         if self.scaler is not None:
             features_2d = self.scaler.transform(features_2d)
 
+        # Clamp to prevent extreme OOD inputs from producing garbage labels
+        features_2d = np.clip(features_2d, -10, 10)
+
         # Predict probabilities
         probabilities = self.model.predict_proba(features_2d)[0]
         predicted_idx = np.argmax(probabilities)
@@ -93,6 +96,8 @@ class AttackClassifier:
 
         if self.scaler is not None:
             features = self.scaler.transform(features)
+
+        features = np.clip(features, -10, 10)
 
         probabilities = self.model.predict_proba(features)
         results = []

@@ -18,6 +18,24 @@ logger = logging.getLogger(__name__)
 ACTION_KEYWORDS = {
     "block": ["block", "deny", "reject", "prevent", "stop", "forbid", "restrict", "disallow", "drop"],
     "unblock": ["allow", "permit", "enable", "accept", "unblock", "whitelist", "let"],
+    "monitor": ["monitor", "watch", "observe", "track", "log", "record", "audit", "inspect"],
+    "alert": ["alert", "notify", "warn", "flag", "report", "alarm", "escalate"],
+    "isolate": ["isolate", "quarantine", "sandbox", "contain", "segregate", "disconnect"],
+    "rate_limit": ["rate limit", "rate-limit", "throttle", "slow down", "limit rate", "cap requests"],
+}
+
+SEVERITY_KEYWORDS = {
+    "critical": ["critical", "severe", "emergency", "urgent", "p0", "p1"],
+    "high": ["high", "important", "major", "dangerous", "serious"],
+    "medium": ["medium", "moderate", "normal", "standard"],
+    "low": ["low", "minor", "informational", "info", "minimal"],
+}
+
+MONITOR_KEYWORDS = {
+    "log_only": ["log only", "just log", "logging only", "silent"],
+    "alert_admin": ["alert admin", "notify admin", "notify team", "send alert", "email alert"],
+    "dashboard": ["show on dashboard", "dashboard alert", "display", "visualize"],
+    "webhook": ["webhook", "send to", "push notification", "post to"],
 }
 
 PROTOCOL_KEYWORDS = {
@@ -87,6 +105,18 @@ class ParsedPolicy:
     rate_limit: Optional[int] = None
     confidence: float = 0.0
     explanation: str = ""
+    # --- Extended fields for intelligent firewall actions ---
+    confidence_threshold: Optional[float] = None
+    severity: Optional[str] = None  # "low", "medium", "high", "critical"
+    isolation_scope: Optional[str] = None  # "endpoint", "subnet", "vlan"
+    isolation_targets: List[str] = field(default_factory=list)
+    monitor_mode: Optional[str] = None  # "log_only", "alert_admin", "dashboard", "webhook"
+    monitor_duration: Optional[int] = None  # seconds
+    rate_limit_window: Optional[int] = None  # window in seconds (default 60)
+    rate_limit_action: Optional[str] = None  # "block", "alert", "throttle"
+    protocols: List[str] = field(default_factory=list)
+    schedule: Optional[dict] = None  # recurring schedule {"days": [...], "time_range": {...}}
+    auto_expire: Optional[int] = None  # auto-expire policy after N seconds
 
 
 class NLPPolicyParser:
@@ -161,20 +191,72 @@ class NLPPolicyParser:
             result.attack_types = attacks
             explanations.append(f"Attack types: {', '.join(attacks)}")
 
-        # 10. Extract rate limit
-        rate = self._extract_rate_limit(text_lower)
+        # 10. Extract rate limit (enhanced with window and action)
+        rate, rate_window, rate_action = self._extract_rate_limit_extended(text_lower)
         if rate:
             result.rate_limit = rate
-            explanations.append(f"Rate limit: {rate}/min")
+            result.rate_limit_window = rate_window or 60
+            result.rate_limit_action = rate_action or "block"
+            explanations.append(f"Rate limit: {rate}/{result.rate_limit_window}s → {result.rate_limit_action}")
+
+        # 11. Extract confidence threshold
+        conf_threshold = self._extract_confidence_threshold(text_lower)
+        if conf_threshold is not None:
+            result.confidence_threshold = conf_threshold
+            explanations.append(f"Confidence threshold: {conf_threshold}")
+
+        # 12. Extract severity
+        severity = self._extract_severity(text_lower)
+        if severity:
+            result.severity = severity
+            explanations.append(f"Severity: {severity}")
+
+        # 13. Extract isolation targets
+        isolation_scope, isolation_targets = self._extract_isolation(text_lower, text)
+        if isolation_scope:
+            result.isolation_scope = isolation_scope
+            result.isolation_targets = isolation_targets
+            explanations.append(f"Isolate: {isolation_scope} {', '.join(isolation_targets)}")
+
+        # 14. Extract monitoring mode
+        monitor_mode, monitor_duration = self._extract_monitor(text_lower)
+        if monitor_mode:
+            result.monitor_mode = monitor_mode
+            if monitor_duration:
+                result.monitor_duration = monitor_duration
+            explanations.append(f"Monitor: {monitor_mode}")
+
+        # 15. Extract protocols
+        protocols = self._extract_protocols(text_lower)
+        if protocols:
+            result.protocols = protocols
+            explanations.append(f"Protocols: {', '.join(protocols)}")
+
+        # 16. Build recurring schedule from time + days
+        if result.time_range and result.days_of_week:
+            result.schedule = {
+                "days": result.days_of_week,
+                "time_range": result.time_range,
+            }
+            explanations.append("Schedule: recurring")
+
+        # 17. Extract auto-expire duration
+        auto_expire = self._extract_auto_expire(text_lower)
+        if auto_expire:
+            result.auto_expire = auto_expire
+            explanations.append(f"Auto-expire: {auto_expire}s")
 
         # Calculate confidence based on how many fields were extracted
         fields_found = sum([
             bool(result.app_names), bool(result.ips), bool(result.domains),
             bool(result.ports), bool(result.time_range), bool(result.geo_countries),
             bool(result.anomaly_threshold is not None), bool(result.attack_types),
-            bool(result.rate_limit),
+            bool(result.rate_limit), bool(result.confidence_threshold is not None),
+            bool(result.severity), bool(result.isolation_scope),
+            bool(result.monitor_mode), bool(result.protocols),
+            bool(result.auto_expire),
         ])
-        result.confidence = min(0.5 + fields_found * 0.1, 1.0)
+        result.confidence = min(0.5 + fields_found * 0.08, 1.0)
         result.explanation = "; ".join(explanations)
 
         return result
@@ -241,9 +323,29 @@ class NLPPolicyParser:
         if "night" in text or "late night" in text:
             time_range = {"start": "22:00", "end": "06:00"}
 
+        # "between 9am and 5pm"
+        between_match = re.search(
+            r'between\s+(\d{1,2})\s*(am|pm)?\s*(?:and|to|-)\s*(\d{1,2})\s*(am|pm)?',
+            text,
+        )
+        if between_match:
+            h1 = int(between_match.group(1))
+            p1 = between_match.group(2)
+            if p1 and p1.lower() == "pm" and h1 < 12:
+                h1 += 12
+            elif p1 and p1.lower() == "am" and h1 == 12:
+                h1 = 0
+            h2 = int(between_match.group(3))
+            p2 = between_match.group(4)
+            if p2 and p2.lower() == "pm" and h2 < 12:
+                h2 += 12
+            elif p2 and p2.lower() == "am" and h2 == 12:
+                h2 = 0
+            time_range = {"start": f"{h1:02d}:00", "end": f"{h2:02d}:00"}
+
         # "after 10pm"
         after_match = re.search(r'after (\d{1,2})\s*(am|pm)?', text)
-        if after_match:
+        if after_match and not between_match:
             hour = int(after_match.group(1))
             period = after_match.group(2)
             if period and period.lower() == "pm" and hour < 12:
@@ -252,7 +354,7 @@ class NLPPolicyParser:
 
         # "before 6am"
         before_match = re.search(r'before (\d{1,2})\s*(am|pm)?', text)
-        if before_match:
+        if before_match and not between_match:
             hour = int(before_match.group(1))
             period = before_match.group(2)
             if period and period.lower() == "pm" and hour < 12:
@@ -270,7 +372,9 @@ class NLPPolicyParser:
     def _extract_countries(self, text: str) -> List[str]:
         countries = []
         for name, code in COUNTRY_KEYWORDS.items():
-            if name in text:
+            # Use word-boundary matching to prevent false positives
+            # (e.g., "us" inside "business", "in" inside "during")
+            if re.search(r'\b' + re.escape(name) + r'\b', text):
                 if code not in countries:
                     countries.append(code)
         return countries
@@ -291,7 +395,8 @@ class NLPPolicyParser:
         attacks = []
         for attack_type, keywords in ATTACK_KEYWORDS.items():
             for kw in keywords:
-                if kw in text:
+                # Word-boundary match prevents "dos" matching inside "ddos"
+                if re.search(r'\b' + re.escape(kw) + r'\b', text):
                     if attack_type not in attacks:
                         attacks.append(attack_type)
                     break
@@ -307,4 +412,169 @@ class NLPPolicyParser:
             match = re.search(pattern, text)
             if match:
                 return int(match.group(1))
+        return None
+
+    def _extract_rate_limit_extended(self, text: str) -> Tuple[Optional[int], Optional[int], Optional[str]]:
+        """Extract rate limit value, window (seconds), and overflow action."""
+        rate = self._extract_rate_limit(text)
+        if rate is None:
+            return None, None, None
+
+        # Extract window – "per second", "per 5 minutes", "per hour"
+        window = 60  # default: per minute
+        window_match = re.search(
+            r'(?:per|/)\s*(?:(\d+)\s*)?'
+            r'(second|sec|minute|min|hour|hr)s?',
+            text,
+        )
+        if window_match:
+            multiplier = int(window_match.group(1)) if window_match.group(1) else 1
+            unit = window_match.group(2)
+            if unit in ("second", "sec"):
+                window = multiplier
+            elif unit in ("minute", "min"):
+                window = multiplier * 60
+            elif unit in ("hour", "hr"):
+                window = multiplier * 3600
+
+        # Extract overflow action
+        action = "block"  # default
+        if "throttle" in text or "slow" in text:
+            action = "throttle"
+        elif "alert" in text or "warn" in text or "notify" in text:
+            action = "alert"
+
+        return rate, window, action
+
+    def _extract_confidence_threshold(self, text: str) -> Optional[float]:
+        """Extract ML confidence threshold."""
+        patterns = [
+            r'confidence\s*(?:above|over|greater than|>|threshold)?\s*(\d*\.?\d+)',
+            r'(?:ml|model)\s*confidence\s*(?:>|above|over)?\s*(\d*\.?\d+)',
+            r'(?:at least|minimum)\s*(\d*\.?\d+)\s*confidence',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                val = float(match.group(1))
+                # Normalize to 0-1 if given as percentage
+                return val / 100.0 if val > 1.0 else val
+        return None
+
+    def _extract_severity(self, text: str) -> Optional[str]:
+        """Extract severity level."""
+        for severity, keywords in SEVERITY_KEYWORDS.items():
+            for kw in keywords:
+                if kw in text:
+                    return severity
+        return None
+
+    def _extract_isolation(self, text_lower: str, text_original: str) -> Tuple[Optional[str], List[str]]:
+        """Extract isolation scope and targets."""
+        scope = None
+        targets = []
+
+        # Check for isolation keywords
+        isolation_mentioned = any(
+            kw in text_lower
+            for kw in ["isolate", "quarantine", "sandbox", "contain", "segregate", "disconnect"]
+        )
+        if not isolation_mentioned:
+            return None, []
+
+        # Determine scope
+        if any(w in text_lower for w in ["subnet", "network", "vlan", "segment"]):
+            scope = "subnet"
+        elif any(w in text_lower for w in ["endpoint", "device", "host", "machine", "computer"]):
+            scope = "endpoint"
+        else:
+            scope = "endpoint"  # default
+
+        # Extract IP targets for isolation
+        ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b'
+        targets = re.findall(ip_pattern, text_original)
+
+        # Extract named endpoints
+        endpoint_match = re.search(r'(?:isolate|quarantine|disconnect)\s+(?:endpoint|device|host)?\s*["\']?([\w.-]+)["\']?', text_lower)
+        if endpoint_match and not targets:
+            targets = [endpoint_match.group(1)]
+
+        return scope, targets
+
+    def _extract_monitor(self, text: str) -> Tuple[Optional[str], Optional[int]]:
+        """Extract monitoring mode and duration."""
+        mode = None
+        duration = None
+
+        for monitor_type, keywords in MONITOR_KEYWORDS.items():
+            for kw in keywords:
+                if kw in text:
+                    mode = monitor_type
+                    break
+            if mode:
+                break
+
+        # If action is "monitor" or "alert" but no specific mode, default to dashboard
+        if mode is None and any(w in text for w in ["monitor", "watch", "observe", "track"]):
+            mode = "dashboard"
+
+        # Extract duration: "for 24 hours", "for 30 minutes"
+        dur_match = re.search(r'for\s+(\d+)\s*(second|sec|minute|min|hour|hr|day)s?', text)
+        if dur_match:
+            value = int(dur_match.group(1))
+            unit = dur_match.group(2)
+            if unit in ("second", "sec"):
+                duration = value
+            elif unit in ("minute", "min"):
+                duration = value * 60
+            elif unit in ("hour", "hr"):
+                duration = value * 3600
+            elif unit == "day":
+                duration = value * 86400
+
+        return mode, duration
+
+    def _extract_protocols(self, text: str) -> List[str]:
+        """Extract protocol specifications."""
+        protocols = []
+        for proto, keywords in PROTOCOL_KEYWORDS.items():
+            for kw in keywords:
+                if kw in text:
+                    protocols.append(proto)
+                    break
+        # Additional protocols
+        if "http" in text and "https" not in text:
+            protocols.append("HTTP")
+        if "https" in text:
+            protocols.append("HTTPS")
+        if "dns" in text:
+            protocols.append("DNS")
+        if "ssh" in text:
+            protocols.append("SSH")
+        if "ftp" in text:
+            protocols.append("FTP")
+        if "smtp" in text:
+            protocols.append("SMTP")
+        return protocols
+
+    def _extract_auto_expire(self, text: str) -> Optional[int]:
+        """Extract auto-expiry duration in seconds."""
+        patterns = [
+            r'(?:expire|expires|auto[- ]?expire|timeout|ttl)\s*(?:after|in)?\s*(\d+)\s*(second|sec|minute|min|hour|hr|day)s?',
+            r'(?:temporary|temp)\s*(?:for)?\s*(\d+)\s*(second|sec|minute|min|hour|hr|day)s?',
+            r'(?:for|lasting)\s*(\d+)\s*(second|sec|minute|min|hour|hr|day)s?\s*(?:only|then)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                value = int(match.group(1))
+                unit = match.group(2)
+                if unit in ("second", "sec"):
+                    return value
+                elif unit in ("minute", "min"):
+                    return value * 60
+                elif unit in ("hour", "hr"):
+                    return value * 3600
+                elif unit == "day":
+                    return value * 86400
         return None

@@ -139,6 +139,8 @@ class PolicyEnforcer:
     def __init__(self):
         self.blocked_domains: Dict[str, List[str]] = {}  # policy_id -> [domains]
         self.blocked_ips: Dict[str, List[str]] = {}  # policy_id -> [ips]
+        self.ml_policies: Dict[str, dict] = {}  # policy_id -> {purpose, conditions}
+        self.isolated_endpoints: Dict[str, List[str]] = {}  # policy_id -> [ips]
         self._is_admin = is_admin()
         if self._is_admin:
             logger.info("PolicyEnforcer: running with ADMIN privileges")
@@ -149,7 +151,7 @@ class PolicyEnforcer:
             )
 
     def sync_from_db(self, db_session):
-        """Load all active 'block' policies from the DB and sync hosts file.
+        """Load all active policies from the DB and sync enforcement state.
 
         Can be called multiple times — always re-syncs to match DB state.
         """
@@ -158,26 +160,36 @@ class PolicyEnforcer:
 
             policies = (
                 db_session.query(Policy)
-                .filter(
-                    Policy.is_active == True,
-                    Policy.purpose == "block",
-                )
+                .filter(Policy.is_active == True)
                 .all()
             )
             self.blocked_domains.clear()
             self.blocked_ips.clear()
+            self.ml_policies.clear()
+
             for p in policies:
-                if p.conditions and isinstance(p.conditions, dict):
+                if not p.conditions or not isinstance(p.conditions, dict):
+                    continue
+
+                if p.purpose == "block":
                     domains = p.conditions.get("domains", [])
                     if domains:
                         self.blocked_domains[p.id] = domains
                     ips = p.conditions.get("ips", [])
                     if ips:
                         self.blocked_ips[p.id] = ips
+
+                elif p.purpose in ("monitor", "alert", "rate_limit", "isolate"):
+                    self.ml_policies[p.id] = {
+                        "purpose": p.purpose,
+                        "conditions": p.conditions,
+                    }
+
             self._rewrite_hosts_file()
             logger.info(
                 f"Synced from DB: {len(self.blocked_domains)} domain policies, "
-                f"{len(self.blocked_ips)} IP policies"
+                f"{len(self.blocked_ips)} IP policies, "
+                f"{len(self.ml_policies)} ML-aware policies"
             )
         except Exception as e:
             logger.error(f"Failed to sync policies from DB: {e}")
@@ -209,6 +221,7 @@ class PolicyEnforcer:
             if ips:
                 success = self._block_ips(policy_id, ips)
                 results["ips"] = {"blocked": ips, "success": success}
+
         elif purpose == "unblock":
             if domains:
                 success = self._unblock_domains_list(domains)
@@ -217,10 +230,63 @@ class PolicyEnforcer:
                 success = self._unblock_ips_list(ips)
                 results["ips"] = {"unblocked": ips, "success": success}
 
+        elif purpose == "monitor":
+            # Store monitoring policy — ML pipeline will check these
+            self._store_ml_policy(policy_id, purpose, conditions)
+            monitor_mode = conditions.get("monitor_mode", "dashboard")
+            results["monitoring"] = {
+                "mode": monitor_mode,
+                "targets": ips or domains or ["all_traffic"],
+                "success": True,
+            }
+            logger.info(f"Monitor policy '{policy_id}' active: mode={monitor_mode}")
+
+        elif purpose == "alert":
+            # Store alert policy — ML pipeline will check these
+            self._store_ml_policy(policy_id, purpose, conditions)
+            results["alerting"] = {
+                "targets": ips or domains or ["all_traffic"],
+                "severity": conditions.get("severity"),
+                "success": True,
+            }
+            logger.info(f"Alert policy '{policy_id}' active")
+
+        elif purpose == "isolate":
+            # Isolate endpoints via firewall rules
+            isolation_targets = conditions.get("isolation_targets", ips)
+            isolation_scope = conditions.get("isolation_scope", "endpoint")
+            if isolation_targets:
+                for target_ip in isolation_targets:
+                    success = self._isolate_endpoint(
+                        policy_id, target_ip, isolation_scope,
+                    )
+                    results[f"isolate_{target_ip}"] = {
+                        "target": target_ip,
+                        "scope": isolation_scope,
+                        "success": success,
+                    }
+            self._store_ml_policy(policy_id, purpose, conditions)
+            logger.info(f"Isolation policy '{policy_id}' active")
+
+        elif purpose == "rate_limit":
+            # Store rate limit policy — ML pipeline will enforce
+            self._store_ml_policy(policy_id, purpose, conditions)
+            results["rate_limit"] = {
+                "limit": conditions.get("rate_limit"),
+                "window": conditions.get("rate_limit_window", 60),
+                "action": conditions.get("rate_limit_action", "block"),
+                "success": True,
+            }
+            logger.info(
+                f"Rate limit policy '{policy_id}' active: "
+                f"{conditions.get('rate_limit')}/{conditions.get('rate_limit_window', 60)}s"
+            )
+
         enforced = any(r.get("success") for r in results.values())
         return {
             "status": "enforced" if enforced else "failed",
             "enforced": enforced,
+            "purpose": purpose,
             "details": results,
         }
 
@@ -238,6 +304,19 @@ class PolicyEnforcer:
         if policy_id in self.blocked_ips:
             self.blocked_ips.pop(policy_id)
 
+        # Remove ML-aware policies (monitor, alert, rate_limit, isolate)
+        if policy_id in self.ml_policies:
+            ml_policy = self.ml_policies.pop(policy_id)
+            results["ml_policy"] = {"removed": ml_policy.get("purpose"), "success": True}
+
+        # Remove isolation rules
+        if policy_id in self.isolated_endpoints:
+            for target_ip in self.isolated_endpoints.pop(policy_id, []):
+                rule_name = f"GuardianShield_Iso_{policy_id[:8]}"
+                self._delete_firewall_rule(rule_name)
+                self._delete_firewall_rule(f"{rule_name}_in")
+            results["isolation"] = {"removed": True}
+
         # ALWAYS try to delete the firewall rule by policy_id
         # (handles case where backend restarted and in-memory state was lost)
         rule_name = f"GuardianShield_{policy_id[:8]}"
@@ -246,6 +325,78 @@ class PolicyEnforcer:
 
         self._rewrite_hosts_file()
         return {"status": "unenforced", "details": results}
+
+    # ============ ML-aware policy storage ============
+
+    def _store_ml_policy(self, policy_id: str, purpose: str, conditions: dict):
+        """Store a policy that the ML inference pipeline will evaluate."""
+        self.ml_policies[policy_id] = {
+            "purpose": purpose,
+            "conditions": conditions,
+        }
+
+    def get_ml_policies(self) -> List[dict]:
+        """Return all ML-aware policies for the inference pipeline to evaluate."""
+        return [
+            {"id": pid, **data}
+            for pid, data in self.ml_policies.items()
+        ]
+
+    # ============ Endpoint isolation ============
+
+    def _isolate_endpoint(self, policy_id: str, target_ip: str, scope: str) -> bool:
+        """Isolate an endpoint via firewall rules."""
+        import re as _re
+        ipv4_re = _re.compile(
+            r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}"
+            r"(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$"
+        )
+        if not ipv4_re.match(target_ip):
+            logger.warning(f"Invalid IP for isolation: {target_ip}")
+            return False
+
+        rule_name = f"GuardianShield_Iso_{policy_id[:8]}"
+        remote_ip = target_ip
+
+        if scope == "subnet":
+            parts = target_ip.split(".")
+            if len(parts) == 4:
+                remote_ip = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+
+        if sys.platform == "win32":
+            # Block outbound
+            cmd_out = (
+                f'netsh advfirewall firewall add rule name={rule_name} '
+                f'dir=out action=block remoteip={remote_ip} protocol=any'
+            )
+            # Block inbound
+            cmd_in = (
+                f'netsh advfirewall firewall add rule name={rule_name}_in '
+                f'dir=in action=block remoteip={remote_ip} protocol=any'
+            )
+            result = subprocess.run(cmd_out, shell=True, capture_output=True, text=True, timeout=15)
+            subprocess.run(cmd_in, shell=True, capture_output=True, text=True, timeout=15)
+            success = result.returncode == 0
+            if not success:
+                success = self._run_elevated(f"{cmd_out} & {cmd_in}")
+        else:
+            r1 = subprocess.run(
+                ["iptables", "-A", "OUTPUT", "-d", remote_ip, "-j", "DROP"],
+                capture_output=True, timeout=10,
+            )
+            subprocess.run(
+                ["iptables", "-A", "INPUT", "-s", remote_ip, "-j", "DROP"],
+                capture_output=True, timeout=10,
+            )
+            success = r1.returncode == 0
+
+        if success:
+            if policy_id not in self.isolated_endpoints:
+                self.isolated_endpoints[policy_id] = []
+            self.isolated_endpoints[policy_id].append(target_ip)
+            logger.info(f"Isolated endpoint {target_ip} ({scope})")
+
+        return success
 
     # ============ DNS resolution for app-level blocking ============
 
@@ -561,18 +712,34 @@ class PolicyEnforcer:
             return success
 
     def get_status(self) -> dict:
-        """Get current enforcement status."""
+        """Get current enforcement status including extended policy types."""
         all_domains: Set[str] = set()
         for domains in self.blocked_domains.values():
             all_domains.update(domains)
         all_ips: Set[str] = set()
         for ips in self.blocked_ips.values():
             all_ips.update(ips)
+        all_isolated: Set[str] = set()
+        for targets in self.isolated_endpoints.values():
+            all_isolated.update(targets)
+
+        # Categorize ML policies by type
+        ml_policy_summary = {}
+        for pid, data in self.ml_policies.items():
+            purpose = data.get("purpose", "unknown")
+            ml_policy_summary.setdefault(purpose, 0)
+            ml_policy_summary[purpose] += 1
+
         return {
             "is_admin": self._is_admin,
             "blocked_domains": sorted(all_domains),
             "blocked_ips": sorted(all_ips),
-            "total_policies_enforced": len(self.blocked_domains) + len(self.blocked_ips),
+            "isolated_endpoints": sorted(all_isolated),
+            "ml_policies": ml_policy_summary,
+            "total_policies_enforced": (
+                len(self.blocked_domains) + len(self.blocked_ips)
+                + len(self.ml_policies) + len(self.isolated_endpoints)
+            ),
         }
 
 
