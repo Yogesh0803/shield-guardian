@@ -96,7 +96,7 @@ const EndpointDetail: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950 p-6 lg:p-8">
+      <div className="min-h-screen bg-slate-900 p-6 lg:p-8">
         <Skeleton className="h-8 w-48 mb-8" />
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -111,15 +111,15 @@ const EndpointDetail: React.FC = () => {
 
   if (error || !endpoint) {
     return (
-      <div className="min-h-screen bg-gray-950 p-6 lg:p-8">
+      <div className="min-h-screen bg-slate-900 p-6 lg:p-8">
         <Button variant="ghost" icon={<ArrowLeft size={16} />} onClick={() => navigate('/endpoints')}>
           Back to Endpoints
         </Button>
         <Card className="mt-6 border-red-500/30">
           <CardContent className="py-12 text-center">
             <AlertTriangle className="mx-auto text-red-400 mb-4" size={40} />
-            <h3 className="text-lg font-medium text-gray-200 mb-1">Error Loading Endpoint</h3>
-            <p className="text-gray-400 text-sm">{error || 'Endpoint not found'}</p>
+            <h3 className="text-lg font-medium text-slate-200 mb-1">Error Loading Endpoint</h3>
+            <p className="text-slate-400 text-sm">{error || 'Endpoint not found'}</p>
           </CardContent>
         </Card>
       </div>
@@ -129,7 +129,7 @@ const EndpointDetail: React.FC = () => {
   const cfg = statusConfig[endpoint.status];
 
   return (
-    <div className="min-h-screen bg-gray-950 p-6 lg:p-8">
+    <div className="min-h-screen bg-slate-900 p-6 lg:p-8">
       {/* Back button */}
       <Button
         variant="ghost"
@@ -143,12 +143,12 @@ const EndpointDetail: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 flex items-center justify-center">
-            <Server size={24} className="text-cyan-400" />
+          <div className="w-12 h-12 rounded-lg bg-blue-500/10 flex items-center justify-center">
+            <Server size={24} className="text-blue-400" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-100">{endpoint.name}</h1>
-            <p className="text-gray-400 font-mono text-sm">{endpoint.ip_address}</p>
+            <h1 className="text-2xl font-bold text-slate-100">{endpoint.name}</h1>
+            <p className="text-slate-400 font-mono text-sm">{endpoint.ip_address}</p>
           </div>
         </div>
         <Button
@@ -164,11 +164,11 @@ const EndpointDetail: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <Card>
           <CardContent className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-md bg-blue-500/10 flex items-center justify-center">
               {cfg.icon}
             </div>
             <div>
-              <p className="text-xs text-gray-400 uppercase tracking-wider">Status</p>
+              <p className="text-xs text-slate-400 uppercase tracking-wider">Status</p>
               <Badge variant={cfg.variant} dot>
                 {cfg.label}
               </Badge>
@@ -177,23 +177,23 @@ const EndpointDetail: React.FC = () => {
         </Card>
         <Card>
           <CardContent className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-md bg-blue-500/10 flex items-center justify-center">
               <AppWindow size={18} className="text-blue-400" />
             </div>
             <div>
-              <p className="text-xs text-gray-400 uppercase tracking-wider">Applications</p>
-              <p className="text-xl font-bold text-gray-100">{endpoint.applications?.length ?? 0}</p>
+              <p className="text-xs text-slate-400 uppercase tracking-wider">Applications</p>
+              <p className="text-xl font-bold text-slate-100">{endpoint.applications?.length ?? 0}</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-md bg-amber-500/10 flex items-center justify-center">
               <Activity size={18} className="text-amber-400" />
             </div>
             <div>
-              <p className="text-xs text-gray-400 uppercase tracking-wider">Traffic Logs</p>
-              <p className="text-xl font-bold text-gray-100">
+              <p className="text-xs text-slate-400 uppercase tracking-wider">Traffic Logs</p>
+              <p className="text-xl font-bold text-slate-100">
                 {endpoint.traffic_logs?.toLocaleString() ?? 0}
               </p>
             </div>
@@ -201,12 +201,12 @@ const EndpointDetail: React.FC = () => {
         </Card>
         <Card>
           <CardContent className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-md bg-purple-500/10 flex items-center justify-center">
               <Clock size={18} className="text-purple-400" />
             </div>
             <div>
-              <p className="text-xs text-gray-400 uppercase tracking-wider">Created</p>
-              <p className="text-sm font-medium text-gray-200">
+              <p className="text-xs text-slate-400 uppercase tracking-wider">Created</p>
+              <p className="text-sm font-medium text-slate-200">
                 {new Date(endpoint.created_at).toLocaleDateString('en-US', {
                   year: 'numeric',
                   month: 'short',
@@ -222,31 +222,31 @@ const EndpointDetail: React.FC = () => {
         {/* Applications */}
         <Card>
           <CardHeader>
-            <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
-              <AppWindow size={18} className="text-cyan-400" />
+            <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+              <AppWindow size={18} className="text-blue-400" />
               Applications
             </h2>
           </CardHeader>
           <CardContent>
             {(!endpoint.applications || endpoint.applications.length === 0) ? (
               <div className="text-center py-8">
-                <AppWindow className="mx-auto text-gray-600 mb-3" size={36} />
-                <p className="text-gray-400 text-sm">No applications registered</p>
+                <AppWindow className="mx-auto text-slate-500 mb-3" size={36} />
+                <p className="text-slate-400 text-sm">No applications registered</p>
               </div>
             ) : (
               <div className="space-y-3">
                 {endpoint.applications.map((app) => (
                   <div
                     key={app.id}
-                    className="flex items-center justify-between p-3 rounded-xl bg-gray-900/50 border border-gray-700/30 hover:border-gray-600/50 transition-colors"
+                    className="flex items-center justify-between p-3 rounded-md bg-slate-700/30 border border-slate-700/30 hover:border-slate-600/40 transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
                         <AppWindow size={14} className="text-blue-400" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-gray-200">{app.name}</p>
-                        <p className="text-xs text-gray-500 font-mono">{app.process_name}</p>
+                        <p className="text-sm font-medium text-slate-200">{app.name}</p>
+                        <p className="text-xs text-slate-500 font-mono">{app.process_name}</p>
                       </div>
                     </div>
                     <Badge variant={appStatusVariant[app.status]} dot>
@@ -262,7 +262,7 @@ const EndpointDetail: React.FC = () => {
         {/* Recent Alerts */}
         <Card>
           <CardHeader>
-            <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
               <AlertTriangle size={18} className="text-amber-400" />
               Recent Alerts
             </h2>
@@ -270,26 +270,26 @@ const EndpointDetail: React.FC = () => {
           <CardContent>
             {(!endpoint.recent_alerts || endpoint.recent_alerts.length === 0) ? (
               <div className="text-center py-8">
-                <Shield className="mx-auto text-gray-600 mb-3" size={36} />
-                <p className="text-gray-400 text-sm">No recent alerts -- all clear</p>
+                <Shield className="mx-auto text-slate-500 mb-3" size={36} />
+                <p className="text-slate-400 text-sm">No recent alerts -- all clear</p>
               </div>
             ) : (
               <div className="space-y-3">
                 {endpoint.recent_alerts.map((alert) => (
                   <div
                     key={alert.id}
-                    className="p-3 rounded-xl bg-gray-900/50 border border-gray-700/30"
+                    className="p-3 rounded-md bg-slate-700/30 border border-slate-700/30"
                   >
                     <div className="flex items-center justify-between mb-2">
                       <Badge variant={severityVariant[alert.severity]}>
                         {alert.severity.toUpperCase()}
                       </Badge>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-slate-500">
                         {new Date(alert.timestamp).toLocaleString()}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-200 mb-1">{alert.message}</p>
-                    <div className="flex items-center gap-3 text-xs text-gray-500">
+                    <p className="text-sm text-slate-200 mb-1">{alert.message}</p>
+                    <div className="flex items-center gap-3 text-xs text-slate-500">
                       {alert.attack_type && (
                         <span className="flex items-center gap-1">
                           <Globe size={12} />
@@ -315,8 +315,8 @@ const EndpointDetail: React.FC = () => {
       {endpoint.policies && endpoint.policies.length > 0 && (
         <Card className="mt-6">
           <CardHeader>
-            <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
-              <Shield size={18} className="text-cyan-400" />
+            <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+              <Shield size={18} className="text-blue-400" />
               Active Policies
             </h2>
           </CardHeader>
@@ -325,12 +325,12 @@ const EndpointDetail: React.FC = () => {
               {endpoint.policies.map((policy) => (
                 <div
                   key={policy.id}
-                  className="flex items-center justify-between p-3 rounded-xl bg-gray-900/50 border border-gray-700/30 hover:border-gray-600/50 transition-colors cursor-pointer"
+                  className="flex items-center justify-between p-3 rounded-md bg-slate-700/30 border border-slate-700/30 hover:border-slate-600/40 transition-colors cursor-pointer"
                   onClick={() => navigate(`/policies`)}
                 >
                   <div>
-                    <p className="text-sm font-medium text-gray-200">{policy.name}</p>
-                    <p className="text-xs text-gray-500">{policy.description}</p>
+                    <p className="text-sm font-medium text-slate-200">{policy.name}</p>
+                    <p className="text-xs text-slate-500">{policy.description}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant={policy.purpose === 'block' ? 'danger' : 'success'}>

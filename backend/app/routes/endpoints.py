@@ -1,11 +1,13 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
 from typing import List
 
 from app.database import get_db
 from app.models.endpoint import Endpoint
 from app.models.application import Application
+from app.models.network_usage import NetworkUsage
 from app.schemas.endpoint import (
     EndpointCreate,
     EndpointResponse,
@@ -22,10 +24,10 @@ logger = logging.getLogger("guardian_shield.endpoints")
 router = APIRouter(prefix="/api/endpoints", tags=["Endpoints"])
 
 
-def _build_list_response(ep: Endpoint) -> EndpointListResponse:
+def _build_list_response(ep: Endpoint, traffic_count: int) -> EndpointListResponse:
     """Build EndpointListResponse with computed traffic_logs."""
     data = EndpointListResponse.model_validate(ep)
-    data.traffic_logs = len(ep.network_usages) if ep.network_usages else 0
+    data.traffic_logs = traffic_count
     return data
 
 
@@ -52,8 +54,17 @@ def list_endpoints(
 ):
     logger.info("Listing all endpoints for user=%s", current_user.email)
     endpoints = db.query(Endpoint).all()
+
+    # Efficiently count network_usages per endpoint in one query
+    traffic_counts_raw = (
+        db.query(NetworkUsage.endpoint_id, func.count(NetworkUsage.id))
+        .group_by(NetworkUsage.endpoint_id)
+        .all()
+    )
+    traffic_map = {eid: cnt for eid, cnt in traffic_counts_raw}
+
     logger.debug("Found %d endpoints", len(endpoints))
-    return [_build_list_response(ep) for ep in endpoints]
+    return [_build_list_response(ep, traffic_map.get(ep.id, 0)) for ep in endpoints]
 
 
 @router.get("/{endpoint_id}", response_model=EndpointResponse)

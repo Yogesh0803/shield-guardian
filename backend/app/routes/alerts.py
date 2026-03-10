@@ -4,6 +4,8 @@ from typing import List, Optional
 
 from app.database import get_db
 from app.models.alert import Alert
+from app.models.endpoint import Endpoint
+from app.models.application import Application
 from app.schemas.alert import AlertResponse
 from app.middleware.auth import get_current_user
 from app.models.user import User
@@ -11,7 +13,25 @@ from app.models.user import User
 router = APIRouter(prefix="/api/alerts", tags=["Alerts"])
 
 
-@router.get("/", response_model=List[AlertResponse])
+def _alert_to_dict(row):
+    """Convert a (Alert, endpoint_name, app_name) row tuple to dict."""
+    a, endpoint_name, app_name = row
+    return {
+        "id": a.id,
+        "severity": a.severity,
+        "category": a.category,
+        "attack_type": a.attack_type,
+        "message": a.message,
+        "confidence": a.confidence,
+        "app_id": a.app_id,
+        "app_name": app_name,
+        "endpoint_id": a.endpoint_id,
+        "endpoint_name": endpoint_name,
+        "timestamp": a.timestamp.isoformat() if a.timestamp else None,
+    }
+
+
+@router.get("/")
 def list_alerts(
     endpoint_id: Optional[str] = Query(None),
     app_id: Optional[str] = Query(None),
@@ -20,7 +40,11 @@ def list_alerts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    query = db.query(Alert)
+    query = (
+        db.query(Alert, Endpoint.name, Application.name)
+        .outerjoin(Endpoint, Alert.endpoint_id == Endpoint.id)
+        .outerjoin(Application, Alert.app_id == Application.id)
+    )
 
     if endpoint_id:
         query = query.filter(Alert.endpoint_id == endpoint_id)
@@ -29,11 +53,11 @@ def list_alerts(
     if severity:
         query = query.filter(Alert.severity == severity)
 
-    alerts = query.order_by(Alert.timestamp.desc()).limit(limit).all()
-    return [AlertResponse.model_validate(a) for a in alerts]
+    rows = query.order_by(Alert.timestamp.desc()).limit(limit).all()
+    return [_alert_to_dict(row) for row in rows]
 
 
-@router.get("/endpoint/{endpoint_id}/app/{app_id}", response_model=List[AlertResponse])
+@router.get("/endpoint/{endpoint_id}/app/{app_id}")
 def get_alerts_for_endpoint_app(
     endpoint_id: str,
     app_id: str,
@@ -41,11 +65,13 @@ def get_alerts_for_endpoint_app(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    alerts = (
-        db.query(Alert)
+    rows = (
+        db.query(Alert, Endpoint.name, Application.name)
+        .outerjoin(Endpoint, Alert.endpoint_id == Endpoint.id)
+        .outerjoin(Application, Alert.app_id == Application.id)
         .filter(Alert.endpoint_id == endpoint_id, Alert.app_id == app_id)
         .order_by(Alert.timestamp.desc())
         .limit(limit)
         .all()
     )
-    return [AlertResponse.model_validate(a) for a in alerts]
+    return [_alert_to_dict(row) for row in rows]

@@ -34,8 +34,8 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, change, trend, icon, 
     <CardContent className="p-5">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-gray-400 mb-1">{title}</p>
-          <p className="text-2xl font-bold text-white">{value}</p>
+          <p className="text-sm text-slate-400 mb-1">{title}</p>
+          <p className="text-2xl font-bold text-slate-100">{value}</p>
           {change && (
             <div className={`flex items-center gap-1 mt-2 text-xs ${trend === 'up' ? 'text-emerald-400' : 'text-red-400'}`}>
               {trend === 'up' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
@@ -43,7 +43,7 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, change, trend, icon, 
             </div>
           )}
         </div>
-        <div className={`p-3 rounded-xl ${color}`}>
+        <div className={`p-3 rounded-lg ${color}`}>
           {icon}
         </div>
       </div>
@@ -80,7 +80,7 @@ const Dashboard: React.FC = () => {
 
   const onAlertMessage = useCallback((data: unknown) => {
     const msg = data as { type: string; data: Alert };
-    if (msg.type === 'alert') {
+    if (msg.type === 'new_alert') {
       setRealtimeAlerts((prev) => [msg.data, ...prev].slice(0, 10));
     }
   }, []);
@@ -147,8 +147,8 @@ const Dashboard: React.FC = () => {
     <div className="space-y-6">
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        <p className="text-gray-500 text-sm mt-1">Real-time network security overview</p>
+        <h1 className="text-2xl font-bold text-slate-100">Dashboard</h1>
+        <p className="text-slate-500 text-sm mt-1">Real-time network security overview</p>
       </div>
 
       {/* Stat cards */}
@@ -158,8 +158,8 @@ const Dashboard: React.FC = () => {
           value={activeEndpoints}
           change={`${endpoints.length} total`}
           trend="up"
-          icon={<Server size={20} className="text-cyan-400" />}
-          color="bg-cyan-500/10"
+          icon={<Server size={20} className="text-blue-400" />}
+          color="bg-blue-500/10"
         />
         <StatCard
           title="Threats Blocked"
@@ -194,8 +194,8 @@ const Dashboard: React.FC = () => {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Activity size={18} className="text-cyan-400" />
-                <h3 className="font-semibold text-white">Network Traffic</h3>
+                <Activity size={18} className="text-blue-400" />
+                <h3 className="font-semibold text-slate-100">Network Traffic</h3>
               </div>
               <Badge variant="info" dot>Live</Badge>
             </div>
@@ -209,8 +209,8 @@ const Dashboard: React.FC = () => {
                     {
                       label: 'Traffic (KB/s)',
                       data: networkData.values,
-                      borderColor: 'rgb(6, 182, 212)',
-                      backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                      borderColor: 'rgb(59, 130, 246)',
+                      backgroundColor: 'rgba(59, 130, 246, 0.08)',
                       fill: true,
                       tension: 0.4,
                       pointRadius: 0,
@@ -223,8 +223,8 @@ const Dashboard: React.FC = () => {
                   maintainAspectRatio: false,
                   plugins: { legend: { display: false } },
                   scales: {
-                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', maxTicksLimit: 6 } },
-                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } },
+                    x: { grid: { color: 'rgba(148,163,184,0.08)' }, ticks: { color: '#64748b', maxTicksLimit: 6 } },
+                    y: { grid: { color: 'rgba(148,163,184,0.08)' }, ticks: { color: '#64748b' } },
                   },
                   interaction: { intersect: false, mode: 'index' },
                 }}
@@ -238,7 +238,7 @@ const Dashboard: React.FC = () => {
           <CardHeader>
             <div className="flex items-center gap-2">
               <Zap size={18} className="text-amber-400" />
-              <h3 className="font-semibold text-white">Attack Types</h3>
+              <h3 className="font-semibold text-slate-100">Attack Types</h3>
             </div>
           </CardHeader>
           <CardContent>
@@ -264,12 +264,12 @@ const Dashboard: React.FC = () => {
                     maintainAspectRatio: false,
                     cutout: '65%',
                     plugins: {
-                      legend: { position: 'bottom', labels: { color: '#9ca3af', padding: 12, usePointStyle: true, pointStyleWidth: 8 } },
+                      legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 12, usePointStyle: true, pointStyleWidth: 8 } },
                     },
                   }}
                 />
               ) : (
-                <div className="text-center text-gray-500">
+                <div className="text-center text-slate-500">
                   <Globe size={40} className="mx-auto mb-2 opacity-30" />
                   <p className="text-sm">No attacks detected</p>
                 </div>
@@ -287,31 +287,31 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <AlertTriangle size={18} className="text-amber-400" />
-                <h3 className="font-semibold text-white">Recent Alerts</h3>
+                <h3 className="font-semibold text-slate-100">Recent Alerts</h3>
               </div>
               <Badge variant="default">{allAlerts.length}</Badge>
             </div>
           </CardHeader>
           <CardContent className="p-0">
             {allAlerts.length > 0 ? (
-              <div className="divide-y divide-gray-800">
+              <div className="divide-y divide-slate-700/50">
                 {allAlerts.slice(0, 8).map((alert, i) => (
-                  <div key={alert.id || i} className="px-6 py-3 flex items-center gap-4 hover:bg-gray-800/30 transition-colors">
+                  <div key={alert.id || i} className="px-5 py-3 flex items-center gap-4 hover:bg-slate-700/30 transition-colors">
                     <Badge variant={severityColor(alert.severity) as 'danger' | 'warning' | 'info' | 'default'} dot>
                       {alert.severity}
                     </Badge>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-200 truncate">{alert.message}</p>
-                      <p className="text-xs text-gray-500">{alert.app_name || alert.attack_type}</p>
+                      <p className="text-sm text-slate-200 truncate">{alert.message}</p>
+                      <p className="text-xs text-slate-500">{alert.app_name || alert.attack_type}</p>
                     </div>
-                    <span className="text-xs text-gray-500 flex-shrink-0">
+                    <span className="text-xs text-slate-500 flex-shrink-0">
                       {new Date(alert.timestamp).toLocaleTimeString()}
                     </span>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="py-12 text-center text-gray-500">
+              <div className="py-12 text-center text-slate-500">
                 <Shield size={40} className="mx-auto mb-2 opacity-30" />
                 <p className="text-sm">No alerts — system is secure</p>
               </div>
@@ -324,12 +324,12 @@ const Dashboard: React.FC = () => {
           <CardHeader>
             <div className="flex items-center gap-2">
               <Brain size={18} className="text-purple-400" />
-              <h3 className="font-semibold text-white">ML Engine</h3>
+              <h3 className="font-semibold text-slate-100">ML Engine</h3>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-400">Status</span>
+              <span className="text-sm text-slate-400">Status</span>
               <Badge variant={mlStatus?.is_running ? 'success' : 'danger'} dot>
                 {mlStatus?.is_running ? 'Running' : 'Offline'}
               </Badge>
@@ -337,46 +337,46 @@ const Dashboard: React.FC = () => {
 
             {mlStatus?.models_loaded?.map((model) => (
               <div key={model} className="flex items-center justify-between">
-                <span className="text-sm text-gray-400">{model}</span>
+                <span className="text-sm text-slate-400">{model}</span>
                 <Badge variant="success">Loaded</Badge>
               </div>
             ))}
 
-            <div className="pt-2 border-t border-gray-700/50 space-y-3">
+            <div className="pt-2 border-t border-slate-700/50 space-y-3">
               <div>
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="text-gray-400">Anomaly Detector</span>
-                  <span className="text-cyan-400">{((mlStatus?.accuracy?.anomaly_detector || 0) * 100).toFixed(1)}%</span>
+                  <span className="text-slate-400">Anomaly Detector</span>
+                  <span className="text-blue-400">{((mlStatus?.accuracy?.anomaly_detector || 0) * 100).toFixed(1)}%</span>
                 </div>
-                <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-500"
+                    className="h-full bg-blue-500 rounded-full transition-all duration-500"
                     style={{ width: `${(mlStatus?.accuracy?.anomaly_detector || 0) * 100}%` }}
                   />
                 </div>
               </div>
               <div>
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="text-gray-400">Attack Classifier</span>
+                  <span className="text-slate-400">Attack Classifier</span>
                   <span className="text-purple-400">{((mlStatus?.accuracy?.attack_classifier || 0) * 100).toFixed(1)}%</span>
                 </div>
-                <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all duration-500"
+                    className="h-full bg-purple-500 rounded-full transition-all duration-500"
                     style={{ width: `${(mlStatus?.accuracy?.attack_classifier || 0) * 100}%` }}
                   />
                 </div>
               </div>
             </div>
 
-            <div className="pt-2 border-t border-gray-700/50">
+            <div className="pt-2 border-t border-slate-700/50">
               <div className="flex justify-between text-xs">
-                <span className="text-gray-500">Total predictions</span>
-                <span className="text-gray-300">{mlStatus?.total_predictions?.toLocaleString() || 0}</span>
+                <span className="text-slate-500">Total predictions</span>
+                <span className="text-slate-300">{mlStatus?.total_predictions?.toLocaleString() || 0}</span>
               </div>
               <div className="flex justify-between text-xs mt-1">
-                <span className="text-gray-500">Last retrain</span>
-                <span className="text-gray-300">
+                <span className="text-slate-500">Last retrain</span>
+                <span className="text-slate-300">
                   {mlStatus?.last_retrain ? new Date(mlStatus.last_retrain).toLocaleDateString() : 'Never'}
                 </span>
               </div>

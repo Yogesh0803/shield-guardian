@@ -8,7 +8,23 @@ import (
 	"strings"
 )
 
-// blockNetworkTraffic blocks all network traffic for the specified applications.
+// winFilter is a shared WinDivert-based packet filter for Windows.
+// Initialized lazily on first use.
+var winFilter *WinDivertFilter
+
+// getWinFilter returns (or initializes) the custom WinDivert packet filter.
+func getWinFilter() (*WinDivertFilter, error) {
+	if winFilter != nil && winFilter.IsRunning() {
+		return winFilter, nil
+	}
+	winFilter = NewWinDivertFilter()
+	if err := winFilter.Start(); err != nil {
+		return nil, err
+	}
+	return winFilter, nil
+}
+
+// BlockNetworkTraffic blocks all network traffic for the specified applications.
 func BlockNetworkTraffic(cfg *Config) {
 	for _, rule := range cfg.Firewall.Rules {
 		switch runtime.GOOS {
@@ -55,12 +71,35 @@ func blockTrafficLinuxMac(rule FirewallRule) {
 		}
 	}
 }
-// blockTrafficWindows blocks network traffic using netsh (Windows).
+
+// blockTrafficWindows blocks network traffic using the custom WinDivert packet
+// filter. Falls back to netsh advfirewall if WinDivert is not available.
 func blockTrafficWindows(rule FirewallRule) {
 	fmt.Printf("Blocking all network traffic for application: %s (ID: %d)\n", rule.Application, rule.ID)
-	// Use Windows Firewall to block traffic, use full path or executable name if required
-	cmd := exec.Command("netsh", "advfirewall", "firewall", "add", "rule", "name=BlockTraffic_"+rule.Application, "dir=out", "action=block", "program=C:\\Path\\To\\"+rule.Application+".exe")
+
+	// Try the custom WinDivert packet filter first
+	pf, err := getWinFilter()
+	if err == nil {
+		fmt.Printf("[PacketFilter] Using custom WinDivert filter for %s\n", rule.Application)
+		pf.BlockRuleIPs(rule)
+		return
+	}
+
+	// Fallback: Windows Defender Firewall via netsh (legacy behaviour)
+	log.Printf("WinDivert unavailable (%v), falling back to netsh for %s", err, rule.Application)
+	cmd := exec.Command("netsh", "advfirewall", "firewall", "add", "rule",
+		"name=BlockTraffic_"+rule.Application,
+		"dir=out", "action=block",
+		"program=C:\\Path\\To\\"+rule.Application+".exe")
 	if err := cmd.Run(); err != nil {
 		log.Printf("Failed to block traffic for application %s using netsh: %v", rule.Application, err)
+	}
+}
+
+// StopWindowsFilter gracefully shuts down the custom packet filter (if running).
+func StopWindowsFilter() {
+	if winFilter != nil {
+		winFilter.Stop()
+		winFilter = nil
 	}
 }

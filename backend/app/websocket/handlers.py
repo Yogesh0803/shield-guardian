@@ -75,12 +75,12 @@ async def websocket_network_endpoint(websocket: WebSocket):
     await manager.connect(websocket, "network")
 
     # Per-connection state — each client tracks its own deltas.
-    prev_stats = _get_real_network_stats()
+    prev_stats = await asyncio.to_thread(_get_real_network_stats)
 
     try:
         while True:
-            # Get real network stats
-            current = _get_real_network_stats()
+            # Get real network stats off the event loop
+            current = await asyncio.to_thread(_get_real_network_stats)
 
             # Calculate deltas (traffic since last update)
             delta_in = max(0, current["bytes_in"] - prev_stats["bytes_in"])
@@ -108,15 +108,7 @@ async def websocket_network_endpoint(websocket: WebSocket):
             }
             await manager.send_personal_message(usage_data, websocket)
 
-            # Also send real connections
-            connections = _get_real_connections()
-            conn_data = {
-                "type": "connections",
-                "data": connections,
-            }
-            await manager.send_personal_message(conn_data, websocket)
-
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
     except WebSocketDisconnect:
         manager.disconnect(websocket, "network")
 
@@ -136,47 +128,44 @@ async def websocket_alerts_endpoint(websocket: WebSocket):
     # High-water mark — only push alerts newer than this.
     last_seen_ts: datetime | None = None
 
+    def _fetch_alerts(since_ts):
+        """Sync DB work — run in thread pool."""
+        db = SessionLocal()
+        try:
+            query = db.query(AlertModel).order_by(AlertModel.timestamp.desc())
+            if since_ts is not None:
+                query = query.filter(AlertModel.timestamp > since_ts)
+            rows = query.limit(20).all()
+            # Extract data while session is open
+            result = []
+            for row in reversed(rows):
+                result.append({
+                    "id": row.id,
+                    "severity": row.severity,
+                    "category": row.category,
+                    "attack_type": row.attack_type,
+                    "message": row.message,
+                    "confidence": row.confidence,
+                    "app_name": row.application.name if row.application else None,
+                    "endpoint_id": row.endpoint_id,
+                    "timestamp": row.timestamp.isoformat() if row.timestamp else datetime.now(timezone.utc).isoformat(),
+                })
+            newest_ts = rows[0].timestamp if rows else None
+            return result, newest_ts
+        finally:
+            db.close()
+
     try:
         while True:
-            db = SessionLocal()
-            try:
-                query = (
-                    db.query(AlertModel)
-                    .order_by(AlertModel.timestamp.desc())
+            alerts, newest_ts = await asyncio.to_thread(_fetch_alerts, last_seen_ts)
+
+            for alert_data in alerts:
+                await manager.send_personal_message(
+                    {"type": "new_alert", "data": alert_data}, websocket
                 )
-                if last_seen_ts is not None:
-                    query = query.filter(AlertModel.timestamp > last_seen_ts)
 
-                rows = query.limit(20).all()
-
-                for row in reversed(rows):  # oldest-first
-                    data = {
-                        "type": "new_alert",
-                        "data": {
-                            "id": row.id,
-                            "severity": row.severity,
-                            "category": row.category,
-                            "attack_type": row.attack_type,
-                            "message": row.message,
-                            "confidence": row.confidence,
-                            "app_name": (
-                                row.application.name
-                                if row.application
-                                else None
-                            ),
-                            "timestamp": (
-                                row.timestamp.isoformat()
-                                if row.timestamp
-                                else datetime.now(timezone.utc).isoformat()
-                            ),
-                        },
-                    }
-                    await manager.send_personal_message(data, websocket)
-
-                if rows:
-                    last_seen_ts = rows[0].timestamp
-            finally:
-                db.close()
+            if newest_ts:
+                last_seen_ts = newest_ts
 
             await asyncio.sleep(3)
     except WebSocketDisconnect:
@@ -198,47 +187,44 @@ async def websocket_predictions_endpoint(websocket: WebSocket):
     # Track the high-water mark so we only push new rows.
     last_seen_ts: datetime | None = None
 
+    def _fetch_predictions(since_ts):
+        """Sync DB work — run in thread pool."""
+        db = SessionLocal()
+        try:
+            query = db.query(MLPrediction).order_by(MLPrediction.timestamp.desc())
+            if since_ts is not None:
+                query = query.filter(MLPrediction.timestamp > since_ts)
+            rows = query.limit(20).all()
+            result = []
+            for row in reversed(rows):
+                result.append({
+                    "id": row.id,
+                    "anomaly_score": row.anomaly_score,
+                    "attack_type": row.attack_type or "Benign",
+                    "confidence": row.confidence,
+                    "action": row.action,
+                    "app_name": row.app_name,
+                    "src_ip": row.src_ip,
+                    "dst_ip": row.dst_ip,
+                    "context": row.context_json or {},
+                    "timestamp": row.timestamp.isoformat() if row.timestamp else datetime.now(timezone.utc).isoformat(),
+                })
+            newest_ts = rows[0].timestamp if rows else None
+            return result, newest_ts
+        finally:
+            db.close()
+
     try:
         while True:
-            db = SessionLocal()
-            try:
-                query = (
-                    db.query(MLPrediction)
-                    .order_by(MLPrediction.timestamp.desc())
+            preds, newest_ts = await asyncio.to_thread(_fetch_predictions, last_seen_ts)
+
+            for pred_data in preds:
+                await manager.send_personal_message(
+                    {"type": "prediction", "data": pred_data}, websocket
                 )
-                if last_seen_ts is not None:
-                    query = query.filter(MLPrediction.timestamp > last_seen_ts)
 
-                # Fetch at most 20 recent predictions per cycle
-                rows = query.limit(20).all()
-
-                for row in reversed(rows):  # oldest-first for the client
-                    data = {
-                        "type": "prediction",
-                        "data": {
-                            "id": row.id,
-                            "anomaly_score": row.anomaly_score,
-                            "attack_type": row.attack_type or "Benign",
-                            "confidence": row.confidence,
-                            "action": row.action,
-                            "app_name": row.app_name,
-                            "src_ip": row.src_ip,
-                            "dst_ip": row.dst_ip,
-                            "context": row.context_json or {},
-                            "timestamp": (
-                                row.timestamp.isoformat()
-                                if row.timestamp
-                                else datetime.now(timezone.utc).isoformat()
-                            ),
-                        },
-                    }
-                    await manager.send_personal_message(data, websocket)
-
-                if rows:
-                    # rows are DESC; first element is the newest
-                    last_seen_ts = rows[0].timestamp
-            finally:
-                db.close()
+            if newest_ts:
+                last_seen_ts = newest_ts
 
             await asyncio.sleep(2)
     except WebSocketDisconnect:

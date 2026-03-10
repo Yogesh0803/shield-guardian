@@ -137,14 +137,19 @@ def delete_policy(
             detail="Policy not found",
         )
 
-    db.delete(policy)
-    db.commit()
-
-    # Remove enforcement synchronously
+    # Remove enforcement FIRST (before deleting from DB) so if this fails,
+    # the policy record still exists and can be retried.
     try:
         enforcer.unenforce_policy(policy_id)
     except Exception as e:
         logger.error(f"Unenforcement failed for '{policy_id}': {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to remove firewall rules: {e}",
+        )
+
+    db.delete(policy)
+    db.commit()
 
 
 @router.patch("/{policy_id}/toggle", response_model=PolicyResponse)

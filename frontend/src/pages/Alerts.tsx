@@ -37,7 +37,7 @@ const severityConfig: Record<
 };
 
 const FlowContextDetail: React.FC<{ context?: FlowContext }> = ({ context }) => {
-  if (!context) return <p className="text-sm text-gray-500">No context available</p>;
+  if (!context) return <p className="text-sm text-slate-500">No context available</p>;
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mt-3">
       {[
@@ -54,9 +54,9 @@ const FlowContextDetail: React.FC<{ context?: FlowContext }> = ({ context }) => 
         { label: 'Dest ASN', value: context.dest_asn },
         { label: 'Geo Anomaly', value: context.is_geo_anomaly ? 'Yes' : 'No' },
       ].map((item) => (
-        <div key={item.label} className="p-2 rounded-lg bg-gray-800/50">
-          <p className="text-[10px] text-gray-500 uppercase tracking-wider">{item.label}</p>
-          <p className="text-xs text-gray-200 font-medium mt-0.5">{item.value ?? '--'}</p>
+        <div key={item.label} className="p-2 rounded-lg bg-slate-700/30">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wider">{item.label}</p>
+          <p className="text-xs text-slate-200 font-medium mt-0.5">{item.value ?? '--'}</p>
         </div>
       ))}
     </div>
@@ -136,18 +136,18 @@ const Alerts: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-950 p-6 lg:p-8">
+    <div className="min-h-screen bg-slate-900 p-6 lg:p-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-100 flex items-center gap-3">
-            <AlertTriangle className="text-cyan-500" size={28} />
+          <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
+            <AlertTriangle className="text-blue-500" size={28} />
             Alerts
             {newAlertFlash && (
               <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
             )}
           </h1>
-          <p className="text-gray-400 mt-1">Monitor security events and threat detections</p>
+          <p className="text-slate-400 mt-1">Monitor security events and threat detections</p>
         </div>
         <Badge variant={isConnected ? 'success' : 'danger'} dot>
           {isConnected ? (
@@ -166,8 +166,8 @@ const Alerts: React.FC = () => {
       <Card className="mb-6">
         <CardContent>
           <div className="flex items-center gap-2 mb-3">
-            <Filter size={16} className="text-gray-400" />
-            <span className="text-sm font-medium text-gray-300">Filters</span>
+            <Filter size={16} className="text-slate-400" />
+            <span className="text-sm font-medium text-slate-300">Filters</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <Select
@@ -208,9 +208,9 @@ const Alerts: React.FC = () => {
       {!loading && !error && alerts.length === 0 && (
         <Card>
           <CardContent className="py-16 text-center">
-            <Bell className="mx-auto text-gray-600 mb-4" size={48} />
-            <h3 className="text-lg font-medium text-gray-300 mb-1">No Alerts Found</h3>
-            <p className="text-gray-500 text-sm">
+            <Bell className="mx-auto text-slate-500 mb-4" size={48} />
+            <h3 className="text-lg font-medium text-slate-300 mb-1">No Alerts Found</h3>
+            <p className="text-slate-500 text-sm">
               {severityFilter || endpointFilter
                 ? 'Try adjusting your filters'
                 : 'No security alerts have been generated yet'}
@@ -240,8 +240,8 @@ const Alerts: React.FC = () => {
                           : alert.severity === 'medium'
                           ? 'bg-amber-500/10'
                           : alert.severity === 'low'
-                          ? 'bg-cyan-500/10'
-                          : 'bg-gray-700/50'
+                          ? 'bg-blue-500/10'
+                          : 'bg-slate-600/30'
                       }`}
                     >
                       {cfg.icon}
@@ -258,8 +258,8 @@ const Alerts: React.FC = () => {
                           <Badge variant="danger">Abnormal</Badge>
                         )}
                       </div>
-                      <p className="text-sm text-gray-200">{alert.message}</p>
-                      <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+                      <p className="text-sm text-slate-200">{alert.message}</p>
+                      <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
                         {alert.app_name && (
                           <span className="flex items-center gap-1">
                             <AppWindow size={12} />
@@ -286,15 +286,15 @@ const Alerts: React.FC = () => {
                     </div>
 
                     {/* Expand chevron */}
-                    <div className="shrink-0 text-gray-500">
+                    <div className="shrink-0 text-slate-500">
                       {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                     </div>
                   </div>
 
                   {/* Expanded content */}
                   {isExpanded && (
-                    <div className="mt-4 pt-4 border-t border-gray-700/30">
-                      <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                    <div className="mt-4 pt-4 border-t border-slate-700/30">
+                      <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                         Flow Context
                       </h4>
                       <FlowContextDetail context={(alert as unknown as { context?: FlowContext }).context} />

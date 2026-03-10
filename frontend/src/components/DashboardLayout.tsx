@@ -36,42 +36,42 @@ export const DashboardLayout: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="min-h-screen bg-slate-900 text-slate-200">
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside
-        className={`fixed top-0 left-0 h-full z-50 bg-gray-900/95 backdrop-blur-md border-r border-gray-800
-          transition-all duration-300 flex flex-col
-          ${sidebarOpen ? 'w-64' : 'w-20'}
+        className={`fixed top-0 left-0 h-full z-50 bg-slate-800 border-r border-slate-700
+          transition-all duration-200 flex flex-col
+          ${sidebarOpen ? 'w-60' : 'w-[68px]'}
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         {/* Logo */}
-        <div className="flex items-center gap-3 px-5 py-6 border-b border-gray-800">
+        <div className="flex items-center gap-3 px-4 py-5 border-b border-slate-700">
           <div className="relative flex-shrink-0">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-              <Shield size={20} className="text-white" />
+            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
+              <Shield size={18} className="text-white" />
             </div>
-            <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-emerald-400 rounded-full border-2 border-gray-900 animate-pulse" />
+            <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-slate-800" />
           </div>
           {sidebarOpen && (
             <div className="overflow-hidden">
-              <h1 className="text-lg font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent leading-tight">
+              <h1 className="text-sm font-semibold text-slate-100 leading-tight">
                 Guardian Shield
               </h1>
-              <p className="text-[10px] text-gray-500 uppercase tracking-widest">Context-Aware Firewall</p>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider">Firewall Console</p>
             </div>
           )}
         </div>
 
         {/* Nav links */}
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
           {navItems.map(({ path, icon: Icon, label }) => (
             <NavLink
               key={path}
@@ -79,46 +79,46 @@ export const DashboardLayout: React.FC = () => {
               end={path === '/'}
               onClick={() => setMobileOpen(false)}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group
+                `flex items-center gap-3 px-3 py-2 rounded-md transition-colors duration-150 group
                 ${
                   isActive
-                    ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-sm shadow-cyan-500/5'
-                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50'
+                    ? 'bg-blue-600/10 text-blue-400 font-medium'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
                 }`
               }
             >
-              <Icon size={20} className="flex-shrink-0" />
-              {sidebarOpen && <span className="text-sm font-medium">{label}</span>}
+              <Icon size={18} className="flex-shrink-0" />
+              {sidebarOpen && <span className="text-sm">{label}</span>}
             </NavLink>
           ))}
         </nav>
 
         {/* User section */}
-        <div className="border-t border-gray-800 p-4">
+        <div className="border-t border-slate-700 p-3">
           {sidebarOpen ? (
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-sm font-bold text-white flex-shrink-0">
+              <div className="w-8 h-8 rounded-md bg-slate-600 flex items-center justify-center text-xs font-semibold text-slate-200 flex-shrink-0">
                 {user?.name?.charAt(0).toUpperCase() || 'U'}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-200 truncate">{user?.name || 'User'}</p>
-                <p className="text-xs text-gray-500 truncate">{user?.role || 'admin'}</p>
+                <p className="text-sm font-medium text-slate-200 truncate">{user?.name || 'User'}</p>
+                <p className="text-xs text-slate-500 truncate">{user?.role || 'admin'}</p>
               </div>
               <button
                 onClick={handleLogout}
-                className="p-2 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                className="p-1.5 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
                 title="Logout"
               >
-                <LogOut size={16} />
+                <LogOut size={15} />
               </button>
             </div>
           ) : (
             <button
               onClick={handleLogout}
-              className="w-full flex items-center justify-center p-2 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              className="w-full flex items-center justify-center p-2 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
               title="Logout"
             >
-              <LogOut size={18} />
+              <LogOut size={16} />
             </button>
           )}
         </div>
@@ -126,28 +126,28 @@ export const DashboardLayout: React.FC = () => {
         {/* Collapse toggle (desktop) */}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="hidden lg:flex absolute -right-3 top-20 w-6 h-6 bg-gray-800 border border-gray-700 rounded-full
-            items-center justify-center text-gray-400 hover:text-white hover:border-cyan-500/50 transition-colors"
+          className="hidden lg:flex absolute -right-3 top-20 w-6 h-6 bg-slate-800 border border-slate-600 rounded-full
+            items-center justify-center text-slate-400 hover:text-slate-200 transition-colors"
         >
-          <ChevronLeft size={14} className={`transition-transform duration-300 ${sidebarOpen ? '' : 'rotate-180'}`} />
+          <ChevronLeft size={14} className={`transition-transform duration-200 ${sidebarOpen ? '' : 'rotate-180'}`} />
         </button>
       </aside>
 
       {/* Main content */}
-      <main className={`transition-all duration-300 ${sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'}`}>
+      <main className={`transition-all duration-200 ${sidebarOpen ? 'lg:ml-60' : 'lg:ml-[68px]'}`}>
         {/* Top bar */}
-        <header className="sticky top-0 z-30 bg-gray-950/80 backdrop-blur-md border-b border-gray-800/50">
-          <div className="flex items-center justify-between px-6 py-3">
+        <header className="sticky top-0 z-30 bg-slate-900 border-b border-slate-800">
+          <div className="flex items-center justify-between px-6 py-2.5">
             <button
               onClick={() => setMobileOpen(true)}
-              className="lg:hidden p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800"
+              className="lg:hidden p-2 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800"
             >
               <Menu size={20} />
             </button>
-            <div className="flex items-center gap-4 ml-auto">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-xs font-medium text-emerald-400">System Active</span>
+            <div className="flex items-center gap-3 ml-auto">
+              <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span className="text-xs font-medium text-emerald-400">Active</span>
               </div>
             </div>
           </div>

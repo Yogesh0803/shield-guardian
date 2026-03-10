@@ -13,9 +13,13 @@ from app.schemas.ml import (
 from app.middleware.auth import get_current_user, require_admin
 from app.models.user import User
 from app.models.ml_prediction import MLPrediction
+from app.models.alert import Alert
+from app.models.endpoint import Endpoint
 from app.database import get_db
 from app.config import settings
 from app.services.ml_loader import get_loaded_models
+
+import uuid as _uuid
 
 router = APIRouter(prefix="/api/ml", tags=["Machine Learning"])
 
@@ -168,7 +172,7 @@ def get_ml_status(
     )
 
 
-@router.post("/predictions", response_model=MLPredictionIngestResponse)
+@router.post("/predictions")
 def ingest_predictions(
     batch: MLPredictionBatch,
     db: Session = Depends(get_db),
@@ -229,6 +233,9 @@ def ingest_predictions(
     if records:
         try:
             db.add_all(records)
+            # Create alerts and discover endpoints within the same transaction
+            _create_alerts_from_predictions(batch.predictions, db, logger)
+            _discover_endpoints_from_predictions(batch.predictions, db, logger)
             db.commit()
             logger.info(
                 f"[INGEST] Stored {created} prediction(s) OK "
@@ -254,6 +261,130 @@ def ingest_predictions(
         status="ok",
         predictions_stored=created,
         errors=errors,
+    )
+
+
+_ATTACK_TYPE_TO_CATEGORY = {
+    "DDoS": "intrusion",
+    "DoS": "intrusion",
+    "BruteForce": "authentication",
+    "PortScan": "intrusion",
+    "SQL Injection": "intrusion",
+    "XSS": "intrusion",
+    "WebAttack": "intrusion",
+    "Infiltration": "malware",
+    "Bot": "malware",
+    "Heartbleed": "intrusion",
+    "DNS Tunneling": "anomaly",
+    "Data Exfiltration": "data_leak",
+    "Unknown": "anomaly",
+}
+
+
+def _action_to_severity(action: str, anomaly_score: float) -> str:
+    """Map prediction action + score to an alert severity."""
+    if action == "block":
+        return "critical" if anomaly_score > 0.85 else "high"
+    if action == "alert":
+        return "high" if anomaly_score > 0.7 else "medium"
+    return "low"
+
+
+def _create_alerts_from_predictions(predictions, db: Session, logger):
+    """Create Alert records for block/alert predictions."""
+    alerts_to_add = []
+    # Find existing endpoint IPs for linking alerts to endpoints (columns only, avoid relationship loading)
+    endpoint_map = {ip: eid for ip, eid in db.query(Endpoint.ip_address, Endpoint.id).all()}
+
+    for pred in predictions:
+        if pred.action not in ("block", "alert"):
+            continue
+
+        attack_type = pred.attack_type or "Unknown"
+        category = _ATTACK_TYPE_TO_CATEGORY.get(attack_type, "anomaly")
+        severity = _action_to_severity(pred.action, pred.anomaly_score)
+
+        # Link to the endpoint that matches the dst_ip (defended host)
+        endpoint_id = endpoint_map.get(pred.dst_ip) or endpoint_map.get(pred.src_ip)
+        if not endpoint_id:
+            # Fall back to first endpoint if no IP match
+            first_ep_id = db.query(Endpoint.id).first()
+            endpoint_id = first_ep_id[0] if first_ep_id else None
+        if not endpoint_id:
+            continue  # no endpoints exist at all
+
+        src = pred.src_ip or "?"
+        dst = pred.dst_ip or "?"
+        port = pred.dst_port or "?"
+        msg = (
+            f"{attack_type} detected: {src} → {dst}:{port} "
+            f"(score: {pred.anomaly_score:.2f}, app: {pred.app_name or 'unknown'})"
+        )
+
+        if pred.timestamp:
+            ts = datetime.fromtimestamp(
+                pred.timestamp, tz=timezone.utc
+            ).replace(tzinfo=None)
+        else:
+            ts = _tz_naive_utcnow()
+
+        alert = Alert(
+            id=str(_uuid.uuid4()),
+            severity=severity,
+            category=category,
+            attack_type=attack_type,
+            message=msg,
+            confidence=pred.confidence,
+            endpoint_id=endpoint_id,
+            timestamp=ts,
+        )
+        alerts_to_add.append(alert)
+
+    if alerts_to_add:
+        db.add_all(alerts_to_add)
+        logger.info(f"[INGEST] Queued {len(alerts_to_add)} alert(s) from predictions")
+
+
+def _discover_endpoints_from_predictions(predictions, db: Session, logger):
+    """Auto-register new endpoints discovered from prediction traffic."""
+    existing_ips = {ip for (ip,) in db.query(Endpoint.ip_address).all()}
+    seen_ips = set()
+    new_endpoints = []
+
+    for pred in predictions:
+        for ip in (pred.dst_ip, pred.src_ip):
+            if not ip or ip in existing_ips or ip in seen_ips:
+                continue
+            # Skip loopback and link-local addresses
+            if ip.startswith("127.") or ip.startswith("0.") or ip == "0.0.0.0":
+                continue
+            seen_ips.add(ip)
+            # Only auto-register private / monitored IPs as endpoints
+            if _is_private_ip(ip):
+                ep = Endpoint(
+                    id=str(_uuid.uuid4()),
+                    name=f"Auto-discovered ({ip})",
+                    ip_address=ip,
+                    status="active",
+                )
+                new_endpoints.append(ep)
+
+    if new_endpoints:
+        db.add_all(new_endpoints)
+        logger.info(
+            f"[INGEST] Queued {len(new_endpoints)} new endpoint(s): "
+            f"{[ep.ip_address for ep in new_endpoints]}"
+        )
+
+
+def _is_private_ip(ip: str) -> bool:
+    """Check if an IP is in a private/reserved range."""
+    return (
+        ip.startswith("10.")
+        or ip.startswith("172.16.") or ip.startswith("172.17.") or ip.startswith("172.18.")
+        or ip.startswith("172.19.") or ip.startswith("172.2") or ip.startswith("172.30.")
+        or ip.startswith("172.31.")
+        or ip.startswith("192.168.")
     )
 
 

@@ -90,26 +90,37 @@ def seed_database(db: Session) -> None:
 
     # --- Policies (10 total) ---
     policy_templates = [
-        ("Block External SSH", "Block all SSH traffic from external sources", "security",
-         {"field": "port", "operator": "equals", "value": 22, "action": "block"}),
-        ("Rate Limit API", "Limit API requests to 1000/min per IP", "rate_limiting",
-         {"field": "request_rate", "operator": "greater_than", "value": 1000, "action": "throttle"}),
-        ("Allow HTTPS Only", "Only allow encrypted HTTPS traffic", "compliance",
-         {"field": "protocol", "operator": "equals", "value": "HTTPS", "action": "allow"}),
-        ("Block Known Malware IPs", "Block traffic from known malicious IP addresses", "threat_prevention",
-         {"field": "source_ip", "operator": "in_list", "value": "threat_intel_feed", "action": "block"}),
-        ("Monitor Large Transfers", "Monitor data transfers exceeding 100MB", "data_loss_prevention",
-         {"field": "bytes_out", "operator": "greater_than", "value": 104857600, "action": "monitor"}),
-        ("Block SQL Injection", "Block requests containing SQL injection patterns", "app_security",
-         {"field": "payload", "operator": "matches", "value": "sql_injection_pattern", "action": "block"}),
-        ("Restrict Admin Access", "Restrict admin panel access to internal IPs", "access_control",
-         {"field": "source_ip", "operator": "in_range", "value": "10.0.0.0/8", "action": "allow"}),
-        ("Log DNS Queries", "Log all DNS queries for analysis", "monitoring",
-         {"field": "protocol", "operator": "equals", "value": "DNS", "action": "log"}),
-        ("Block Tor Exit Nodes", "Block traffic from known Tor exit nodes", "threat_prevention",
-         {"field": "source_ip", "operator": "in_list", "value": "tor_exit_nodes", "action": "block"}),
-        ("Bandwidth Throttle", "Throttle bandwidth during peak hours", "performance",
-         {"field": "bandwidth", "operator": "greater_than", "value": 500000000, "action": "throttle"}),
+        ("Block External SSH", "Block all SSH traffic from external sources", "block",
+         {"domains": [], "ips": [], "ports": [{"port": 22, "protocol": ["TCP"]}], "app_names": [],
+          "anomaly_threshold": None, "rate_limit": None}),
+        ("Rate Limit API", "Limit API requests to 1000/min per IP", "block",
+         {"domains": [], "ips": [], "ports": [{"port": 8080, "protocol": ["TCP"]}], "app_names": ["node"],
+          "rate_limit": 1000, "anomaly_threshold": None}),
+        ("Allow HTTPS Only", "Only allow encrypted HTTPS traffic", "block",
+         {"domains": [], "ips": [], "ports": [{"port": 80, "protocol": ["TCP"]}], "app_names": [],
+          "anomaly_threshold": None, "rate_limit": None}),
+        ("Block Known Malware IPs", "Block traffic from known malicious IP addresses", "block",
+         {"domains": [], "ips": ["198.51.100.1", "203.0.113.50", "192.0.2.100"], "ports": [], "app_names": [],
+          "anomaly_threshold": None, "rate_limit": None}),
+        ("Monitor Large Transfers", "Monitor data transfers exceeding 100MB", "block",
+         {"domains": [], "ips": [], "ports": [], "app_names": [],
+          "anomaly_threshold": 0.7, "rate_limit": None}),
+        ("Block SQL Injection", "Block requests containing SQL injection patterns", "block",
+         {"domains": [], "ips": [], "ports": [{"port": 3306, "protocol": ["TCP"]}, {"port": 5432, "protocol": ["TCP"]}],
+          "app_names": ["postgres"], "attack_types": ["SQL Injection"], "anomaly_threshold": None, "rate_limit": None}),
+        ("Restrict Admin Access", "Restrict admin panel access to internal IPs", "block",
+         {"domains": ["admin.internal.local"], "ips": ["10.0.0.0/8"], "ports": [{"port": 443, "protocol": ["TCP"]}],
+          "app_names": [], "anomaly_threshold": None, "rate_limit": None}),
+        ("Log DNS Queries", "Log all DNS queries for analysis", "block",
+         {"domains": [], "ips": [], "ports": [{"port": 53, "protocol": ["UDP", "TCP"]}], "app_names": [],
+          "anomaly_threshold": None, "rate_limit": None}),
+        ("Block Tor Exit Nodes", "Block traffic from known Tor exit nodes", "block",
+         {"domains": [], "ips": ["185.220.101.0/24", "23.129.64.0/24"], "ports": [], "app_names": [],
+          "geo_countries": ["XX"], "anomaly_threshold": None, "rate_limit": None}),
+        ("Bandwidth Throttle", "Throttle bandwidth during peak hours", "block",
+         {"domains": [], "ips": [], "ports": [], "app_names": [],
+          "time_range": {"start": "09:00", "end": "17:00"}, "rate_limit": 500000,
+          "anomaly_threshold": None}),
     ]
     for i, (name, desc, purpose, conditions) in enumerate(policy_templates):
         ep = endpoints[i % len(endpoints)]
@@ -188,7 +199,7 @@ def seed_database(db: Session) -> None:
         "DDoS", "SQL Injection", "XSS", "Port Scan", "Brute Force",
         "Man-in-the-Middle", "DNS Tunneling", "Data Exfiltration", "Malware C2",
     ]
-    ml_actions = ["allow", "block", "monitor"]
+    ml_actions = ["allow", "block", "alert"]
     ml_app_names = ["nginx", "postgres", "redis-server", "node", "python3"]
 
     for i in range(30):

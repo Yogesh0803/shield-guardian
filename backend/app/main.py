@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import logging
 
 from fastapi import FastAPI, WebSocket
@@ -61,6 +62,11 @@ async def _prune_old_predictions():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Increase default thread-pool so WebSocket `to_thread` calls don't
+    # starve HTTP sync handlers.
+    loop = asyncio.get_running_loop()
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=40))
+
     # Startup: create tables and seed data
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()

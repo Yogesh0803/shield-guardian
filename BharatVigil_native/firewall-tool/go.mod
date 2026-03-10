@@ -7,6 +7,7 @@ require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/mattn/go-sqlite3 v1.14.23
 	github.com/spf13/cobra v1.8.1
+	github.com/williamfhe/godivert v0.0.0-20200223153310-1f9344d400e0
 	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v2 v2.4.0
 )

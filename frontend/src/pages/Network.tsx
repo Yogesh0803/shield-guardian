@@ -155,13 +155,13 @@ const Network: React.FC = () => {
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          labels: { color: '#9ca3af', usePointStyle: true, pointStyle: 'circle' as const },
+          labels: { color: '#94a3b8', usePointStyle: true, pointStyle: 'circle' as const },
         },
         tooltip: {
-          backgroundColor: 'rgba(17, 24, 39, 0.95)',
-          titleColor: '#f3f4f6',
-          bodyColor: '#d1d5db',
-          borderColor: 'rgba(75, 85, 99, 0.3)',
+          backgroundColor: 'rgba(15, 23, 42, 0.95)',
+          titleColor: '#e2e8f0',
+          bodyColor: '#cbd5e1',
+          borderColor: 'rgba(51, 65, 85, 0.4)',
           borderWidth: 1,
           callbacks: {
             label: (ctx: { dataset: { label?: string }; parsed: { y: number } }) =>
@@ -170,13 +170,13 @@ const Network: React.FC = () => {
         },
       },
       scales: {
-        x: { ticks: { color: '#6b7280', maxTicksLimit: 10 }, grid: { color: 'rgba(55, 65, 81, 0.3)' } },
+        x: { ticks: { color: '#64748b', maxTicksLimit: 10 }, grid: { color: 'rgba(148, 163, 184, 0.08)' } },
         y: {
           ticks: {
-            color: '#6b7280',
+            color: '#64748b',
             callback: (value: string | number) => formatBytes(Number(value)),
           },
-          grid: { color: 'rgba(55, 65, 81, 0.3)' },
+          grid: { color: 'rgba(148, 163, 184, 0.08)' },
         },
       },
     }),
@@ -215,12 +215,12 @@ const Network: React.FC = () => {
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          labels: { color: '#9ca3af', usePointStyle: true, pointStyle: 'circle' as const },
+          labels: { color: '#94a3b8', usePointStyle: true, pointStyle: 'circle' as const },
         },
         tooltip: {
-          backgroundColor: 'rgba(17, 24, 39, 0.95)',
-          titleColor: '#f3f4f6',
-          bodyColor: '#d1d5db',
+          backgroundColor: 'rgba(15, 23, 42, 0.95)',
+          titleColor: '#e2e8f0',
+          bodyColor: '#cbd5e1',
           callbacks: {
             label: (ctx: { dataset: { label?: string }; parsed: { y: number } }) =>
               `${ctx.dataset.label}: ${formatBytes(ctx.parsed.y)}`,
@@ -228,13 +228,13 @@ const Network: React.FC = () => {
         },
       },
       scales: {
-        x: { ticks: { color: '#6b7280' }, grid: { color: 'rgba(55, 65, 81, 0.3)' } },
+        x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(148, 163, 184, 0.08)' } },
         y: {
           ticks: {
-            color: '#6b7280',
+            color: '#64748b',
             callback: (value: string | number) => formatBytes(Number(value)),
           },
-          grid: { color: 'rgba(55, 65, 81, 0.3)' },
+          grid: { color: 'rgba(148, 163, 184, 0.08)' },
         },
       },
     }),
@@ -257,15 +257,15 @@ const Network: React.FC = () => {
   }, [connections, connSearch]);
 
   return (
-    <div className="min-h-screen bg-gray-950 p-6 lg:p-8">
+    <div className="min-h-screen bg-slate-900 p-6 lg:p-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-100 flex items-center gap-3">
-            <NetworkIcon className="text-cyan-500" size={28} />
+          <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
+            <NetworkIcon className="text-blue-500" size={28} />
             Network Monitoring
           </h1>
-          <p className="text-gray-400 mt-1">Real-time network traffic and connection analysis</p>
+          <p className="text-slate-400 mt-1">Real-time network traffic and connection analysis</p>
         </div>
         <Badge variant={isConnected ? 'success' : 'danger'} dot>
           {isConnected ? (
@@ -291,12 +291,12 @@ const Network: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <Card>
             <CardContent className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center">
-                <Box size={18} className="text-cyan-400" />
+              <div className="w-10 h-10 rounded-md bg-blue-500/10 flex items-center justify-center">
+                <Box size={18} className="text-blue-400" />
               </div>
               <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Total Packets</p>
-                <p className="text-xl font-bold text-gray-100">
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Total Packets</p>
+                <p className="text-xl font-bold text-slate-100">
                   {stats.totalPackets.toLocaleString()}
                 </p>
               </div>
@@ -304,12 +304,12 @@ const Network: React.FC = () => {
           </Card>
           <Card>
             <CardContent className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-md bg-emerald-500/10 flex items-center justify-center">
                 <ArrowDownRight size={18} className="text-emerald-400" />
               </div>
               <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Bytes In</p>
-                <p className="text-xl font-bold text-gray-100">
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Bytes In</p>
+                <p className="text-xl font-bold text-slate-100">
                   {formatBytes(stats.totalBytesIn)}
                 </p>
               </div>
@@ -317,12 +317,12 @@ const Network: React.FC = () => {
           </Card>
           <Card>
             <CardContent className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-md bg-indigo-500/10 flex items-center justify-center">
                 <ArrowUpRight size={18} className="text-indigo-400" />
               </div>
               <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Bytes Out</p>
-                <p className="text-xl font-bold text-gray-100">
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Bytes Out</p>
+                <p className="text-xl font-bold text-slate-100">
                   {formatBytes(stats.totalBytesOut)}
                 </p>
               </div>
@@ -330,12 +330,12 @@ const Network: React.FC = () => {
           </Card>
           <Card>
             <CardContent className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-md bg-amber-500/10 flex items-center justify-center">
                 <Activity size={18} className="text-amber-400" />
               </div>
               <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Avg Packet Size</p>
-                <p className="text-xl font-bold text-gray-100">
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Avg Packet Size</p>
+                <p className="text-xl font-bold text-slate-100">
                   {formatBytes(stats.avgPacketSize)}
                 </p>
               </div>
@@ -349,8 +349,8 @@ const Network: React.FC = () => {
         {/* Line Chart */}
         <Card>
           <CardHeader>
-            <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
-              <Activity size={18} className="text-cyan-400" />
+            <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+              <Activity size={18} className="text-blue-400" />
               Real-Time Traffic
             </h2>
           </CardHeader>
@@ -358,8 +358,8 @@ const Network: React.FC = () => {
             {trafficHistory.length < 2 ? (
               <div className="h-64 flex items-center justify-center">
                 <div className="text-center">
-                  <Activity className="mx-auto text-gray-600 mb-3 animate-pulse" size={32} />
-                  <p className="text-sm text-gray-500">Waiting for traffic data...</p>
+                  <Activity className="mx-auto text-slate-500 mb-3 animate-pulse" size={32} />
+                  <p className="text-sm text-slate-500">Waiting for traffic data...</p>
                 </div>
               </div>
             ) : (
@@ -373,8 +373,8 @@ const Network: React.FC = () => {
         {/* Bar Chart */}
         <Card>
           <CardHeader>
-            <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
-              <NetworkIcon size={18} className="text-cyan-400" />
+            <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+              <NetworkIcon size={18} className="text-blue-400" />
               Per-Endpoint Usage
             </h2>
           </CardHeader>
@@ -382,8 +382,8 @@ const Network: React.FC = () => {
             {Object.keys(latestUsage).length === 0 ? (
               <div className="h-64 flex items-center justify-center">
                 <div className="text-center">
-                  <NetworkIcon className="mx-auto text-gray-600 mb-3 animate-pulse" size={32} />
-                  <p className="text-sm text-gray-500">Waiting for endpoint data...</p>
+                  <NetworkIcon className="mx-auto text-slate-500 mb-3 animate-pulse" size={32} />
+                  <p className="text-sm text-slate-500">Waiting for endpoint data...</p>
                 </div>
               </div>
             ) : (
@@ -399,8 +399,8 @@ const Network: React.FC = () => {
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
-              <NetworkIcon size={18} className="text-cyan-400" />
+            <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+              <NetworkIcon size={18} className="text-blue-400" />
               Active Connections
               {connections.length > 0 && (
                 <Badge variant="info">{connections.length}</Badge>
@@ -419,40 +419,40 @@ const Network: React.FC = () => {
         <div className="overflow-x-auto">
           {connections.length === 0 ? (
             <CardContent className="py-12 text-center">
-              <NetworkIcon className="mx-auto text-gray-600 mb-3" size={36} />
-              <p className="text-sm text-gray-500">No active connections</p>
+              <NetworkIcon className="mx-auto text-slate-500 mb-3" size={36} />
+              <p className="text-sm text-slate-500">No active connections</p>
             </CardContent>
           ) : (
             <table className="w-full">
               <thead>
-                <tr className="border-b border-gray-700/50">
+                <tr className="border-b border-slate-700/50">
                   {['Endpoint', 'App', 'Status', 'Source', 'Destination', 'Protocol'].map((h) => (
                     <th
                       key={h}
-                      className="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider"
+                      className="text-left px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider"
                     >
                       {h}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-700/30">
+              <tbody className="divide-y divide-slate-700/30">
                 {filteredConnections.map((conn) => (
                   <tr
                     key={conn.id}
-                    className="hover:bg-gray-700/20 transition-colors duration-150"
+                    className="hover:bg-slate-700/20 transition-colors duration-150"
                   >
-                    <td className="px-6 py-3 text-sm text-gray-300">{conn.endpoint}</td>
-                    <td className="px-6 py-3 text-sm text-gray-300">{conn.app}</td>
+                    <td className="px-6 py-3 text-sm text-slate-300">{conn.endpoint}</td>
+                    <td className="px-6 py-3 text-sm text-slate-300">{conn.app}</td>
                     <td className="px-6 py-3">
                       <Badge variant={connectionStatusVariant[conn.status]}>
                         {conn.status}
                       </Badge>
                     </td>
-                    <td className="px-6 py-3 text-sm text-gray-400 font-mono">
+                    <td className="px-6 py-3 text-sm text-slate-400 font-mono">
                       {conn.src_ip}:{conn.src_port}
                     </td>
-                    <td className="px-6 py-3 text-sm text-gray-400 font-mono">
+                    <td className="px-6 py-3 text-sm text-slate-400 font-mono">
                       {conn.dst_ip}:{conn.dst_port}
                     </td>
                     <td className="px-6 py-3">

@@ -122,15 +122,15 @@ const Endpoints: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 p-6 lg:p-8">
+    <div className="min-h-screen bg-slate-900 p-6 lg:p-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-100 flex items-center gap-3">
-            <Server className="text-cyan-500" size={28} />
+          <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
+            <Server className="text-blue-500" size={28} />
             Endpoint Management
           </h1>
-          <p className="text-gray-400 mt-1">Monitor and manage your protected endpoints</p>
+          <p className="text-slate-400 mt-1">Monitor and manage your protected endpoints</p>
         </div>
         <Button
           variant="primary"
@@ -173,11 +173,11 @@ const Endpoints: React.FC = () => {
       {!loading && !error && filtered.length === 0 && (
         <Card>
           <CardContent className="py-16 text-center">
-            <Server className="mx-auto text-gray-600 mb-4" size={48} />
-            <h3 className="text-lg font-medium text-gray-300 mb-1">
+            <Server className="mx-auto text-slate-500 mb-4" size={48} />
+            <h3 className="text-lg font-medium text-slate-300 mb-1">
               {search ? 'No matching endpoints' : 'No endpoints found'}
             </h3>
-            <p className="text-gray-500 text-sm">
+            <p className="text-slate-500 text-sm">
               {search
                 ? 'Try adjusting your search query'
                 : 'Endpoints will appear here once agents are connected'}
@@ -191,7 +191,7 @@ const Endpoints: React.FC = () => {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+              <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
                 {filtered.length} Endpoint{filtered.length !== 1 ? 's' : ''}
               </h2>
             </div>
@@ -199,43 +199,43 @@ const Endpoints: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-gray-700/50">
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                <tr className="border-b border-slate-700/50">
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                     Name
                   </th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                     IP Address
                   </th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                     Apps
                   </th>
-                  <th className="text-right px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <th className="text-right px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-700/30">
+              <tbody className="divide-y divide-slate-700/30">
                 {filtered.map((ep) => {
                   const cfg = statusConfig[ep.status];
                   return (
                     <tr
                       key={ep.id}
                       onClick={() => navigate(`/endpoints/${ep.id}`)}
-                      className="hover:bg-gray-700/20 cursor-pointer transition-colors duration-150"
+                      className="hover:bg-slate-700/20 cursor-pointer transition-colors duration-150"
                     >
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-                            <Server size={16} className="text-cyan-400" />
+                          <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                            <Server size={16} className="text-blue-400" />
                           </div>
-                          <span className="text-sm font-medium text-gray-200">{ep.name}</span>
+                          <span className="text-sm font-medium text-slate-200">{ep.name}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="text-sm text-gray-400 font-mono">{ep.ip_address}</span>
+                        <span className="text-sm text-slate-400 font-mono">{ep.ip_address}</span>
                       </td>
                       <td className="px-6 py-4">
                         <Badge variant={cfg.variant} dot>
@@ -245,8 +245,8 @@ const Endpoints: React.FC = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          <AppWindow size={14} className="text-gray-500" />
-                          <span className="text-sm text-gray-300">
+                          <AppWindow size={14} className="text-slate-500" />
+                          <span className="text-sm text-slate-300">
                             {ep.applications?.length ?? 0}
                           </span>
                         </div>
@@ -261,7 +261,7 @@ const Endpoints: React.FC = () => {
                           >
                             Add App
                           </Button>
-                          <ChevronRight size={16} className="text-gray-500" />
+                          <ChevronRight size={16} className="text-slate-500" />
                         </div>
                       </td>
                     </tr>

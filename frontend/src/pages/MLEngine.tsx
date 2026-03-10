@@ -43,7 +43,7 @@ const modelInfo: Record<string, { name: string; description: string; icon: React
   lstm_cnn: {
     name: 'LSTM + CNN',
     description: 'Sequence and pattern recognition for traffic analysis',
-    icon: <Activity size={20} className="text-cyan-400" />,
+    icon: <Activity size={20} className="text-blue-400" />,
   },
   xgboost: {
     name: 'XGBoost',
@@ -71,10 +71,10 @@ const AccuracyBar: React.FC<{ label: string; value: number; color: string }> = (
   return (
     <div>
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-xs font-medium text-gray-300">{label}</span>
-        <span className="text-xs font-bold text-gray-200">{pct}%</span>
+        <span className="text-xs font-medium text-slate-300">{label}</span>
+        <span className="text-xs font-bold text-slate-200">{pct}%</span>
       </div>
-      <div className="h-2.5 bg-gray-700/50 rounded-full overflow-hidden">
+      <div className="h-2.5 bg-slate-600/30 rounded-full overflow-hidden">
         <div
           className="h-full rounded-full transition-all duration-1000 ease-out"
           style={{
@@ -148,15 +148,15 @@ const MLEngine: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 p-6 lg:p-8">
+    <div className="min-h-screen bg-slate-900 p-6 lg:p-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-100 flex items-center gap-3">
-            <Brain className="text-cyan-500" size={28} />
+          <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
+            <Brain className="text-blue-500" size={28} />
             ML Engine
           </h1>
-          <p className="text-gray-400 mt-1">
+          <p className="text-slate-400 mt-1">
             Machine learning model status, accuracy, and real-time predictions
           </p>
         </div>
@@ -214,11 +214,11 @@ const MLEngine: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <Card>
             <CardContent className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center">
-                <Cpu size={18} className="text-cyan-400" />
+              <div className="w-10 h-10 rounded-md bg-blue-500/10 flex items-center justify-center">
+                <Cpu size={18} className="text-blue-400" />
               </div>
               <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Engine Status</p>
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Engine Status</p>
                 <Badge variant={status.is_running ? 'success' : 'danger'} dot className="mt-1">
                   {status.is_running ? 'Running' : 'Stopped'}
                 </Badge>
@@ -227,12 +227,12 @@ const MLEngine: React.FC = () => {
           </Card>
           <Card>
             <CardContent className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-md bg-purple-500/10 flex items-center justify-center">
                 <Activity size={18} className="text-purple-400" />
               </div>
               <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Predictions/min</p>
-                <p className="text-xl font-bold text-gray-100">
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Predictions/min</p>
+                <p className="text-xl font-bold text-slate-100">
                   {status.predictions_per_minute.toLocaleString()}
                 </p>
               </div>
@@ -240,12 +240,12 @@ const MLEngine: React.FC = () => {
           </Card>
           <Card>
             <CardContent className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-md bg-emerald-500/10 flex items-center justify-center">
                 <BarChart3 size={18} className="text-emerald-400" />
               </div>
               <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Total Predictions</p>
-                <p className="text-xl font-bold text-gray-100">
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Total Predictions</p>
+                <p className="text-xl font-bold text-slate-100">
                   {status.total_predictions.toLocaleString()}
                 </p>
               </div>
@@ -253,12 +253,12 @@ const MLEngine: React.FC = () => {
           </Card>
           <Card>
             <CardContent className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-md bg-red-500/10 flex items-center justify-center">
                 <Shield size={18} className="text-red-400" />
               </div>
               <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Total Blocked</p>
-                <p className="text-xl font-bold text-gray-100">
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Total Blocked</p>
+                <p className="text-xl font-bold text-slate-100">
                   {status.total_blocked.toLocaleString()}
                 </p>
               </div>
@@ -278,12 +278,12 @@ const MLEngine: React.FC = () => {
                   <CardContent className="space-y-4">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-gray-700/50 flex items-center justify-center">
+                        <div className="w-10 h-10 rounded-md bg-slate-600/30 flex items-center justify-center">
                           {info.icon}
                         </div>
                         <div>
-                          <h3 className="text-sm font-semibold text-gray-100">{info.name}</h3>
-                          <p className="text-xs text-gray-500 mt-0.5">{info.description}</p>
+                          <h3 className="text-sm font-semibold text-slate-100">{info.name}</h3>
+                          <p className="text-xs text-slate-500 mt-0.5">{info.description}</p>
                         </div>
                       </div>
                     </div>
@@ -309,8 +309,8 @@ const MLEngine: React.FC = () => {
         {/* Accuracy Card */}
         <Card>
           <CardHeader>
-            <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
-              <BarChart3 size={18} className="text-cyan-400" />
+            <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+              <BarChart3 size={18} className="text-blue-400" />
               Model Accuracy
             </h2>
           </CardHeader>
@@ -334,11 +334,11 @@ const MLEngine: React.FC = () => {
                 />
               </>
             ) : (
-              <p className="text-sm text-gray-500">No accuracy data available</p>
+              <p className="text-sm text-slate-500">No accuracy data available</p>
             )}
             {status?.last_retrain && (
-              <div className="pt-3 border-t border-gray-700/30">
-                <p className="text-xs text-gray-500 flex items-center gap-1">
+              <div className="pt-3 border-t border-slate-700/30">
+                <p className="text-xs text-slate-500 flex items-center gap-1">
                   <Clock size={12} />
                   Last retrained:{' '}
                   {new Date(status.last_retrain).toLocaleString()}
@@ -353,8 +353,8 @@ const MLEngine: React.FC = () => {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
-              <Activity size={18} className="text-cyan-400" />
+            <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+              <Activity size={18} className="text-blue-400" />
               Real-Time Prediction Feed
               {predictions.length > 0 && (
                 <Badge variant="info">{predictions.length}</Badge>
@@ -374,21 +374,21 @@ const MLEngine: React.FC = () => {
         <div className="overflow-x-auto">
           {predictions.length === 0 ? (
             <CardContent className="py-16 text-center">
-              <Brain className="mx-auto text-gray-600 mb-4 animate-pulse" size={48} />
-              <h3 className="text-lg font-medium text-gray-300 mb-1">Waiting for Predictions</h3>
-              <p className="text-gray-500 text-sm">
+              <Brain className="mx-auto text-slate-500 mb-4 animate-pulse" size={48} />
+              <h3 className="text-lg font-medium text-slate-300 mb-1">Waiting for Predictions</h3>
+              <p className="text-slate-500 text-sm">
                 Live ML predictions will appear here as they are processed
               </p>
             </CardContent>
           ) : (
             <table className="w-full">
               <thead>
-                <tr className="border-b border-gray-700/50">
+                <tr className="border-b border-slate-700/50">
                   {['Action', 'Anomaly Score', 'Attack Type', 'Confidence', 'App', 'Source', 'Dest', 'Time'].map(
                     (h) => (
                       <th
                         key={h}
-                        className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider"
+                        className="text-left px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider"
                       >
                         {h}
                       </th>
@@ -396,7 +396,7 @@ const MLEngine: React.FC = () => {
                   )}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-700/30">
+              <tbody className="divide-y divide-slate-700/30">
                 {predictions.map((pred) => {
                   const acfg = actionConfig[pred.action] ?? {
                     variant: 'default' as const,
@@ -405,7 +405,7 @@ const MLEngine: React.FC = () => {
                   return (
                     <tr
                       key={pred.id}
-                      className="hover:bg-gray-700/20 transition-colors duration-150"
+                      className="hover:bg-slate-700/20 transition-colors duration-150"
                     >
                       <td className="px-5 py-3">
                         <Badge variant={acfg.variant}>
@@ -415,7 +415,7 @@ const MLEngine: React.FC = () => {
                       </td>
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-2">
-                          <div className="w-16 h-1.5 bg-gray-700/50 rounded-full overflow-hidden">
+                          <div className="w-16 h-1.5 bg-slate-600/30 rounded-full overflow-hidden">
                             <div
                               className="h-full rounded-full"
                               style={{
@@ -429,7 +429,7 @@ const MLEngine: React.FC = () => {
                               }}
                             />
                           </div>
-                          <span className="text-xs text-gray-300 font-mono">
+                          <span className="text-xs text-slate-300 font-mono">
                             {pred.anomaly_score.toFixed(3)}
                           </span>
                         </div>
@@ -438,7 +438,7 @@ const MLEngine: React.FC = () => {
                         {pred.attack_type ? (
                           <Badge variant="warning">{pred.attack_type}</Badge>
                         ) : (
-                          <span className="text-xs text-gray-500">--</span>
+                          <span className="text-xs text-slate-500">--</span>
                         )}
                       </td>
                       <td className="px-5 py-3">
@@ -448,26 +448,26 @@ const MLEngine: React.FC = () => {
                               ? 'text-emerald-400'
                               : pred.confidence > 0.5
                               ? 'text-amber-400'
-                              : 'text-gray-400'
+                              : 'text-slate-400'
                           }`}
                         >
                           {Math.round(pred.confidence * 100)}%
                         </span>
                       </td>
                       <td className="px-5 py-3">
-                        <span className="text-xs text-gray-300 flex items-center gap-1">
-                          <AppWindow size={12} className="text-gray-500" />
+                        <span className="text-xs text-slate-300 flex items-center gap-1">
+                          <AppWindow size={12} className="text-slate-500" />
                           {pred.app_name}
                         </span>
                       </td>
                       <td className="px-5 py-3">
-                        <span className="text-xs text-gray-400 font-mono">{pred.src_ip}</span>
+                        <span className="text-xs text-slate-400 font-mono">{pred.src_ip}</span>
                       </td>
                       <td className="px-5 py-3">
-                        <span className="text-xs text-gray-400 font-mono">{pred.dst_ip}</span>
+                        <span className="text-xs text-slate-400 font-mono">{pred.dst_ip}</span>
                       </td>
                       <td className="px-5 py-3">
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-slate-500">
                           {new Date(pred.timestamp).toLocaleTimeString()}
                         </span>
                       </td>

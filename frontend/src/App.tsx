@@ -25,12 +25,12 @@ const App: React.FC = () => {
           position="top-right"
           toastOptions={{
             style: {
-              background: '#1f2937',
-              color: '#f3f4f6',
-              border: '1px solid rgba(75, 85, 99, 0.3)',
-              borderRadius: '12px',
+              background: '#1e293b',
+              color: '#e2e8f0',
+              border: '1px solid #334155',
+              borderRadius: '8px',
             },
-            success: { iconTheme: { primary: '#06b6d4', secondary: '#fff' } },
+            success: { iconTheme: { primary: '#3b82f6', secondary: '#fff' } },
             error: { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
           }}
         />

@@ -52,23 +52,33 @@ export interface PolicyPort {
 }
 
 export interface PolicyConditions {
-  domains: string[];
-  ips: string[];
-  ports: PolicyPort[];
-  app_names: string[];
+  domains?: string[];
+  ips?: string[];
+  ports?: PolicyPort[];
+  app_names?: string[];
   time_range?: { start: string; end: string };
   days_of_week?: number[];
   geo_countries?: string[];
   anomaly_threshold?: number;
   attack_types?: string[];
   rate_limit?: number;
+  confidence_threshold?: number;
+  rate_limit_window?: number;
+  rate_limit_action?: 'block' | 'alert' | 'throttle';
+  severity?: string;
+  isolation_scope?: string;
+  isolation_targets?: string[];
+  monitor_mode?: string;
+  monitor_duration?: number;
+  protocols?: string[];
+  auto_expire?: number;
 }
 
 export interface Policy {
   id: string;
   name: string;
   description: string;
-  purpose: 'block' | 'unblock';
+  purpose: string;
   conditions: PolicyConditions;
   endpoint_id: string;
   created_at: string;
@@ -78,7 +88,7 @@ export interface Policy {
 export interface PolicyCreateRequest {
   name: string;
   description: string;
-  purpose: 'block' | 'unblock';
+  purpose: 'block' | 'unblock' | 'rate_limit' | 'isolate' | 'monitor' | 'alert';
   conditions: PolicyConditions;
   endpoint_id?: string;
   natural_language?: string;
@@ -88,10 +98,10 @@ export interface PolicyCreateRequest {
 export interface Alert {
   id: string;
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
-  category: 'normal' | 'abnormal';
-  attack_type: string;
+  category: string;
+  attack_type?: string | null;
   message: string;
-  confidence: number;
+  confidence?: number | null;
   app_id?: string;
   app_name?: string;
   endpoint_id: string;
@@ -190,11 +200,13 @@ export interface DashboardStats {
 export interface NLPPolicyParse {
   name: string;
   description: string;
-  input: string;
+  input?: string;
   parsed: PolicyConditions;
-  purpose: 'block' | 'unblock';
+  purpose: 'block' | 'unblock' | 'rate_limit' | 'isolate' | 'monitor' | 'alert';
   confidence: number;
   explanation: string;
+  rule_type?: string;
+  capabilities_used?: string[];
 }
 
 // ==================== WebSocket Messages ====================

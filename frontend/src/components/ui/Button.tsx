@@ -4,17 +4,17 @@ type Variant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'outline';
 type Size = 'sm' | 'md' | 'lg';
 
 const variantStyles: Record<Variant, string> = {
-  primary: 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-lg shadow-cyan-500/20',
-  secondary: 'bg-gray-700 hover:bg-gray-600 text-gray-200 border border-gray-600',
-  danger: 'bg-red-600/80 hover:bg-red-500 text-white',
-  ghost: 'hover:bg-gray-700/50 text-gray-400 hover:text-gray-200',
-  outline: 'border border-gray-600 hover:border-cyan-500/50 text-gray-300 hover:text-cyan-400',
+  primary: 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm',
+  secondary: 'bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600',
+  danger: 'bg-red-600 hover:bg-red-700 text-white',
+  ghost: 'hover:bg-slate-700/50 text-slate-400 hover:text-slate-200',
+  outline: 'border border-slate-600 hover:border-blue-500/50 text-slate-300 hover:text-blue-400',
 };
 
 const sizeStyles: Record<Size, string> = {
   sm: 'px-3 py-1.5 text-xs',
   md: 'px-4 py-2 text-sm',
-  lg: 'px-6 py-3 text-base',
+  lg: 'px-5 py-2.5 text-sm',
 };
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -35,7 +35,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => (
   <button
-    className={`inline-flex items-center justify-center gap-2 font-medium rounded-xl transition-all duration-200
+    className={`inline-flex items-center justify-center gap-2 font-medium rounded-md transition-colors duration-150
       ${variantStyles[variant]} ${sizeStyles[size]}
       ${disabled || loading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
       ${className}`}

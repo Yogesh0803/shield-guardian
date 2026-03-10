@@ -1,6 +1,8 @@
 from typing import Dict, List
 from fastapi import WebSocket
 
+MAX_CONNECTIONS_PER_CHANNEL = 5
+
 
 class ConnectionManager:
     """Manages WebSocket connections for different channels."""
@@ -16,6 +18,13 @@ class ConnectionManager:
         await websocket.accept()
         if channel not in self.active_connections:
             self.active_connections[channel] = []
+        # Evict oldest connections if over limit
+        while len(self.active_connections[channel]) >= MAX_CONNECTIONS_PER_CHANNEL:
+            old = self.active_connections[channel].pop(0)
+            try:
+                await old.close(code=1000, reason="replaced by newer connection")
+            except Exception:
+                pass
         self.active_connections[channel].append(websocket)
 
     def disconnect(self, websocket: WebSocket, channel: str):

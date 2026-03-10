@@ -18,5 +18,5 @@ class Endpoint(Base):
 
     applications = relationship("Application", back_populates="endpoint", lazy="selectin")
     policies = relationship("Policy", back_populates="endpoint", lazy="selectin")
-    alerts = relationship("Alert", back_populates="endpoint", lazy="selectin")
-    network_usages = relationship("NetworkUsage", back_populates="endpoint", lazy="selectin")
+    alerts = relationship("Alert", back_populates="endpoint", lazy="select")
+    network_usages = relationship("NetworkUsage", back_populates="endpoint", lazy="select")

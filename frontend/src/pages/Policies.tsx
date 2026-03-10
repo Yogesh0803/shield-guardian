@@ -13,7 +13,7 @@ import {
   ShieldOff,
   ShieldCheck,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader } from '../components/ui/Card';
+import { Card, CardContent } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
@@ -21,7 +21,8 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { policyService } from '../services/policy.service';
 import type { Policy, PolicyConditions } from '../types';
 
-function summarizeConditions(conditions: PolicyConditions): string {
+function summarizeConditions(conditions: PolicyConditions | null | undefined): string {
+  if (!conditions) return 'No conditions defined';
   const parts: string[] = [];
   if (conditions.domains?.length) parts.push(`${conditions.domains.length} domain(s)`);
   if (conditions.ips?.length) parts.push(`${conditions.ips.length} IP(s)`);
@@ -30,7 +31,13 @@ function summarizeConditions(conditions: PolicyConditions): string {
   if (conditions.geo_countries?.length) parts.push(`${conditions.geo_countries.length} country(s)`);
   if (conditions.time_range) parts.push('time-based');
   if (conditions.anomaly_threshold != null) parts.push(`anomaly > ${conditions.anomaly_threshold}`);
-  if (conditions.rate_limit != null) parts.push(`rate limit: ${conditions.rate_limit}`);
+  if (conditions.rate_limit != null) parts.push(`rate limit: ${conditions.rate_limit}/${conditions.rate_limit_window ?? 60}s`);
+  if (conditions.attack_types?.length) parts.push(`${conditions.attack_types.length} attack type(s)`);
+  if (conditions.protocols?.length) parts.push(`protocols: ${conditions.protocols.join(', ')}`);
+  if (conditions.isolation_scope) parts.push(`isolate: ${conditions.isolation_scope}`);
+  if (conditions.monitor_mode) parts.push(`monitor: ${conditions.monitor_mode}`);
+  if (conditions.severity) parts.push(`severity: ${conditions.severity}`);
+  if (conditions.auto_expire) parts.push(`expires in ${conditions.auto_expire}s`);
   return parts.length ? parts.join(' | ') : 'No conditions defined';
 }
 
@@ -90,15 +97,15 @@ const Policies: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 p-6 lg:p-8">
+    <div className="min-h-screen bg-slate-900 p-6 lg:p-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-100 flex items-center gap-3">
-            <Shield className="text-cyan-500" size={28} />
+          <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
+            <Shield className="text-blue-500" size={28} />
             Policy Management
           </h1>
-          <p className="text-gray-400 mt-1">Configure firewall rules and access controls</p>
+          <p className="text-slate-400 mt-1">Configure firewall rules and access controls</p>
         </div>
         <Button
           variant="primary"
@@ -141,9 +148,9 @@ const Policies: React.FC = () => {
       {!loading && !error && policies.length === 0 && (
         <Card>
           <CardContent className="py-20 text-center">
-            <ShieldOff className="mx-auto text-gray-600 mb-4" size={56} />
-            <h3 className="text-xl font-semibold text-gray-300 mb-2">No Policies Yet</h3>
-            <p className="text-gray-500 text-sm mb-6 max-w-md mx-auto">
+            <ShieldOff className="mx-auto text-slate-500 mb-4" size={56} />
+            <h3 className="text-xl font-semibold text-slate-300 mb-2">No Policies Yet</h3>
+            <p className="text-slate-500 text-sm mb-6 max-w-md mx-auto">
               Policies define how your firewall handles traffic. Create your first policy to start
               protecting your endpoints.
             </p>
@@ -167,52 +174,61 @@ const Policies: React.FC = () => {
                 {/* Title & Purpose */}
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-base font-semibold text-gray-100 truncate">
+                    <h3 className="text-base font-semibold text-slate-100 truncate">
                       {policy.name}
                     </h3>
-                    <p className="text-sm text-gray-400 mt-1 line-clamp-2">
+                    <p className="text-sm text-slate-400 mt-1 line-clamp-2">
                       {policy.description || 'No description'}
                     </p>
                   </div>
-                  <Badge variant={policy.purpose === 'block' ? 'danger' : 'success'} className="ml-3 shrink-0">
+                  <Badge variant={
+                    policy.purpose === 'block' ? 'danger' :
+                    policy.purpose === 'unblock' ? 'success' :
+                    policy.purpose === 'isolate' ? 'danger' :
+                    policy.purpose === 'alert' ? 'warning' : 'info'
+                  } className="ml-3 shrink-0">
                     {policy.purpose === 'block' ? (
                       <span className="flex items-center gap-1">
                         <ShieldOff size={12} /> Block
                       </span>
-                    ) : (
+                    ) : policy.purpose === 'unblock' ? (
                       <span className="flex items-center gap-1">
                         <ShieldCheck size={12} /> Allow
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1">
+                        <Shield size={12} /> {(policy.purpose || 'Policy').replace('_', ' ')}
                       </span>
                     )}
                   </Badge>
                 </div>
 
                 {/* Conditions Summary */}
-                <div className="p-3 rounded-xl bg-gray-900/50 border border-gray-700/30">
-                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <div className="p-3 rounded-md bg-slate-700/30 border border-slate-700/30">
+                  <p className="text-xs text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
                     <FileText size={12} />
                     Conditions
                   </p>
-                  <p className="text-xs text-gray-300">
+                  <p className="text-xs text-slate-300">
                     {summarizeConditions(policy.conditions)}
                   </p>
                 </div>
 
                 {/* Condition tags */}
                 <div className="flex flex-wrap gap-1.5">
-                  {policy.conditions.domains?.slice(0, 3).map((d) => (
+                  {policy.conditions?.domains?.slice(0, 3).map((d) => (
                     <Badge key={d} variant="info">
                       <Globe size={10} className="mr-1" />
                       {d}
                     </Badge>
                   ))}
-                  {policy.conditions.ips?.slice(0, 2).map((ip) => (
+                  {policy.conditions?.ips?.slice(0, 2).map((ip) => (
                     <Badge key={ip} variant="default">
                       <Network size={10} className="mr-1" />
                       {ip}
                     </Badge>
                   ))}
-                  {policy.conditions.time_range && (
+                  {policy.conditions?.time_range && (
                     <Badge variant="warning">
                       <Clock size={10} className="mr-1" />
                       {policy.conditions.time_range.start} - {policy.conditions.time_range.end}
@@ -221,7 +237,7 @@ const Policies: React.FC = () => {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center justify-between pt-2 border-t border-gray-700/30">
+                <div className="flex items-center justify-between pt-2 border-t border-slate-700/30">
                   <button
                     onClick={() => handleToggle(policy.id)}
                     disabled={togglingId === policy.id}
@@ -229,13 +245,13 @@ const Policies: React.FC = () => {
                   >
                     {policy.is_active ? (
                       <>
-                        <ToggleRight size={22} className="text-cyan-400" />
-                        <span className="text-cyan-400">Active</span>
+                        <ToggleRight size={22} className="text-blue-400" />
+                        <span className="text-blue-400">Active</span>
                       </>
                     ) : (
                       <>
-                        <ToggleLeft size={22} className="text-gray-500" />
-                        <span className="text-gray-500">Inactive</span>
+                        <ToggleLeft size={22} className="text-slate-500" />
+                        <span className="text-slate-500">Inactive</span>
                       </>
                     )}
                   </button>
@@ -263,7 +279,7 @@ const Policies: React.FC = () => {
         size="sm"
       >
         <div className="space-y-4">
-          <p className="text-gray-300 text-sm">
+          <p className="text-slate-300 text-sm">
             Are you sure you want to delete this policy? This action cannot be undone and may leave
             endpoints unprotected.
           </p>

@@ -300,7 +300,7 @@ class PolicyEnforcer:
             success = self._unblock_domains_list(domains)
             results["domains"] = {"unblocked": domains, "success": success}
 
-        # Remove blocked IPs from in-memory state
+        # Remove blocked IPs and their firewall rules
         if policy_id in self.blocked_ips:
             self.blocked_ips.pop(policy_id)
 
@@ -312,14 +312,14 @@ class PolicyEnforcer:
         # Remove isolation rules
         if policy_id in self.isolated_endpoints:
             for target_ip in self.isolated_endpoints.pop(policy_id, []):
-                rule_name = f"GuardianShield_Iso_{policy_id[:8]}"
-                self._delete_firewall_rule(rule_name)
-                self._delete_firewall_rule(f"{rule_name}_in")
+                rule_name_iso = f"GuardianShield_Iso_{policy_id}"
+                self._delete_firewall_rule(rule_name_iso)
+                self._delete_firewall_rule(f"{rule_name_iso}_in")
             results["isolation"] = {"removed": True}
 
         # ALWAYS try to delete the firewall rule by policy_id
         # (handles case where backend restarted and in-memory state was lost)
-        rule_name = f"GuardianShield_{policy_id[:8]}"
+        rule_name = f"GuardianShield_{policy_id}"
         fw_success = self._delete_firewall_rule(rule_name)
         results["firewall"] = {"rule": rule_name, "deleted": fw_success}
 
@@ -355,7 +355,7 @@ class PolicyEnforcer:
             logger.warning(f"Invalid IP for isolation: {target_ip}")
             return False
 
-        rule_name = f"GuardianShield_Iso_{policy_id[:8]}"
+        rule_name = f"GuardianShield_Iso_{policy_id}"
         remote_ip = target_ip
 
         if scope == "subnet":
@@ -648,7 +648,7 @@ class PolicyEnforcer:
         if not ips:
             return True
 
-        rule_name = f"GuardianShield_{policy_id[:8]}"
+        rule_name = f"GuardianShield_{policy_id}"
         ip_list = ",".join(ips)
 
         if sys.platform == "win32":
@@ -692,10 +692,10 @@ class PolicyEnforcer:
             return True
 
         if sys.platform == "win32":
-            # Build commands to delete all GuardianShield rules
+            # Build commands to delete all GuardianShield rules that block these IPs
             cmds = []
             for pid in list(self.blocked_ips.keys()):
-                rule_name = f"GuardianShield_{pid[:8]}"
+                rule_name = f"GuardianShield_{pid}"
                 cmds.append(f'netsh advfirewall firewall delete rule name={rule_name}')
             if not cmds:
                 return True

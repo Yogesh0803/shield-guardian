@@ -1,7 +1,12 @@
 """
 Firewall rule enforcement.
 Actually blocks/allows traffic using OS-level firewall commands.
-Supports Windows (netsh) and Linux (iptables).
+
+On Windows: uses a custom WinDivert-based packet filter (kernel-level
+interception, independent of Windows Defender Firewall). Falls back to
+netsh advfirewall if WinDivert/pydivert is not available.
+
+On Linux: uses iptables.
 
 Extended actions: rate limiting, endpoint isolation, monitoring.
 """
@@ -11,10 +16,15 @@ import sys
 import subprocess
 import logging
 import time
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, TYPE_CHECKING
 from collections import defaultdict
 from dataclasses import dataclass, field
 from threading import Timer, Lock
+
+if sys.platform == "win32":
+    from .windows_packet_filter import WindowsPacketFilter
+elif TYPE_CHECKING:
+    from .windows_packet_filter import WindowsPacketFilter
 
 # Strict regex: bare IPv4 or IPv6 address only — no CIDR, no spaces.
 _IPV4_RE = re.compile(
@@ -68,7 +78,12 @@ class MonitorEntry:
 
 
 class FirewallEnforcer:
-    """Cross-platform firewall rule management with extended actions."""
+    """Cross-platform firewall rule management with extended actions.
+
+    On Windows, uses a custom WinDivert-based kernel packet filter
+    (GuardianShield's own firewall) instead of Windows Defender Firewall.
+    Falls back to netsh advfirewall only if WinDivert is not available.
+    """
 
     def __init__(self, default_block_duration: int = 300):
         self.default_block_duration = default_block_duration
@@ -79,6 +94,39 @@ class FirewallEnforcer:
         self.platform = "windows" if sys.platform == "win32" else "linux"
         self._timers: Dict[str, Timer] = {}
         self._lock = Lock()
+
+        # --- Custom Windows packet filter (WinDivert) ---
+        self._packet_filter: Optional["WindowsPacketFilter"] = None
+        self._use_custom_filter = False
+        if self.platform == "windows":
+            self._init_custom_packet_filter()
+
+    def _init_custom_packet_filter(self):
+        """Attempt to start the custom WinDivert-based packet filter.
+
+        If successful, all Windows block/isolate operations will go through
+        our own kernel-level filter instead of Windows Defender Firewall.
+        """
+        try:
+            pf = WindowsPacketFilter()
+            if pf.is_available:
+                if pf.start():
+                    self._packet_filter = pf
+                    self._use_custom_filter = True
+                    logger.info(
+                        "Using GuardianShield custom packet filter (WinDivert) "
+                        "— Windows Defender Firewall will NOT be used"
+                    )
+                    return
+            logger.warning(
+                "WinDivert not available — falling back to "
+                "Windows Defender Firewall (netsh advfirewall)"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Custom packet filter init failed ({e}) — falling back "
+                "to Windows Defender Firewall (netsh advfirewall)"
+            )
 
     def block_ip(
         self,
@@ -114,7 +162,10 @@ class FirewallEnforcer:
 
         try:
             if self.platform == "windows":
-                success = self._block_windows(ip, rule_name)
+                if self._use_custom_filter:
+                    success = self._packet_filter.block_ip(ip, reason=reason)
+                else:
+                    success = self._block_windows(ip, rule_name)
             else:
                 success = self._block_linux(ip)
 
@@ -153,7 +204,10 @@ class FirewallEnforcer:
 
         try:
             if self.platform == "windows":
-                success = self._unblock_windows(rule.rule_name)
+                if self._use_custom_filter:
+                    success = self._packet_filter.unblock_ip(ip)
+                else:
+                    success = self._unblock_windows(rule.rule_name)
             else:
                 success = self._unblock_linux(ip)
 
@@ -175,7 +229,7 @@ class FirewallEnforcer:
         logger.info(f"Block expired for IP {ip}")
         self.unblock_ip(ip)
 
-    # ============ Windows (netsh) ============
+    # ============ Windows (netsh) — fallback only ============
 
     def _block_windows(self, ip: str, rule_name: str) -> bool:
         result = subprocess.run(
@@ -245,6 +299,12 @@ class FirewallEnforcer:
         self._timers.clear()
         self.rate_limiters.clear()
         self.monitors.clear()
+        # Stop the custom packet filter if running
+        if self._packet_filter is not None:
+            self._packet_filter.stop()
+            self._packet_filter = None
+            self._use_custom_filter = False
+            logger.info("Custom packet filter stopped during cleanup")
 
     # ============ Endpoint Isolation ============
 
@@ -281,7 +341,12 @@ class FirewallEnforcer:
 
         try:
             if self.platform == "windows":
-                success = self._isolate_windows(target_ip, rule_name, scope, allowed)
+                if self._use_custom_filter:
+                    success = self._isolate_windows_custom(
+                        target_ip, scope, allowed, reason,
+                    )
+                else:
+                    success = self._isolate_windows(target_ip, rule_name, scope, allowed)
             else:
                 success = self._isolate_linux(target_ip, scope, allowed)
 
@@ -321,13 +386,22 @@ class FirewallEnforcer:
 
         try:
             if self.platform == "windows":
-                success = self._unblock_windows(rule.rule_name)
-                # Also remove allow rules
-                subprocess.run(
-                    ["netsh", "advfirewall", "firewall", "delete", "rule",
-                     f"name={rule.rule_name}_allow"],
-                    capture_output=True, text=True,
-                )
+                if self._use_custom_filter:
+                    success = self._packet_filter.unisolate_endpoint(target_ip)
+                    if rule.scope == "subnet":
+                        parts = target_ip.split(".")
+                        if len(parts) == 4:
+                            self._packet_filter.unblock_subnet(
+                                f"{parts[0]}.{parts[1]}.{parts[2]}."
+                            )
+                else:
+                    success = self._unblock_windows(rule.rule_name)
+                    # Also remove allow rules
+                    subprocess.run(
+                        ["netsh", "advfirewall", "firewall", "delete", "rule",
+                         f"name={rule.rule_name}_allow"],
+                        capture_output=True, text=True,
+                    )
             else:
                 success = self._unisolate_linux(target_ip, rule.scope)
 
@@ -350,8 +424,20 @@ class FirewallEnforcer:
         logger.info(f"Isolation expired for {target_ip}")
         self.unisolate_endpoint(target_ip)
 
+    def _isolate_windows_custom(
+        self, ip: str, scope: str, allowed_ips: List[str], reason: str = "",
+    ) -> bool:
+        """Isolate endpoint on Windows using the custom WinDivert packet filter."""
+        pf = self._packet_filter
+        if scope == "subnet":
+            parts = ip.split(".")
+            if len(parts) == 4:
+                pf.block_subnet(f"{parts[0]}.{parts[1]}.{parts[2]}.")
+        pf.isolate_endpoint(ip, allowed_ips=allowed_ips, reason=reason)
+        return True
+
     def _isolate_windows(self, ip: str, rule_name: str, scope: str, allowed_ips: List[str]) -> bool:
-        """Isolate endpoint on Windows using netsh."""
+        """Isolate endpoint on Windows using netsh (fallback)."""
         remote_ip = ip
         if scope == "subnet":
             parts = ip.split(".")
@@ -535,9 +621,9 @@ class FirewallEnforcer:
         ]
 
     def get_extended_status(self) -> dict:
-        """Get full status including isolation, rate limits, and monitors."""
+        """Get full status including isolation, rate limits, monitors, and packet filter."""
         now = time.time()
-        return {
+        status = {
             "block_rules": self.get_active_rules(),
             "isolation_rules": [
                 {
@@ -571,4 +657,13 @@ class FirewallEnforcer:
                 }
                 for m in self.monitors.values()
             ],
+            "firewall_mode": (
+                "custom_packet_filter"
+                if self._use_custom_filter
+                else ("netsh_fallback" if self.platform == "windows" else "iptables")
+            ),
         }
+        # Attach live packet filter stats when available
+        if self._use_custom_filter and self._packet_filter is not None:
+            status["packet_filter_stats"] = self._packet_filter.get_stats()
+        return status

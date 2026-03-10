@@ -36,83 +36,83 @@ const Register: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center px-6">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center px-6">
+      <div className="w-full max-w-sm">
         <div className="flex items-center justify-center gap-3 mb-10">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-            <Shield size={24} className="text-white" />
+          <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
+            <Shield size={20} className="text-white" />
           </div>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+          <h1 className="text-xl font-bold text-slate-100">
             Guardian Shield
           </h1>
         </div>
 
         <div className="mb-8 text-center">
-          <h2 className="text-2xl font-bold text-white mb-2">Create your account</h2>
-          <p className="text-gray-500">Get started with Guardian Shield firewall</p>
+          <h2 className="text-xl font-semibold text-slate-100 mb-1">Create your account</h2>
+          <p className="text-slate-500 text-sm">Get started with Guardian Shield firewall</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-gray-300">Full Name</label>
+            <label className="text-sm font-medium text-slate-300">Full Name</label>
             <div className="relative">
-              <User size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+              <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
                 type="text"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="John Doe"
-                className="w-full bg-gray-900 border border-gray-800 rounded-xl pl-11 pr-4 py-3 text-gray-200
-                  placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/30 transition-all"
+                className="w-full bg-slate-800 border border-slate-600 rounded-md pl-10 pr-4 py-2.5 text-sm text-slate-200
+                  placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50 transition-colors"
               />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-gray-300">Email</label>
+            <label className="text-sm font-medium text-slate-300">Email</label>
             <div className="relative">
-              <Mail size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+              <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@company.com"
-                className="w-full bg-gray-900 border border-gray-800 rounded-xl pl-11 pr-4 py-3 text-gray-200
-                  placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/30 transition-all"
+                className="w-full bg-slate-800 border border-slate-600 rounded-md pl-10 pr-4 py-2.5 text-sm text-slate-200
+                  placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50 transition-colors"
               />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-gray-300">Password</label>
+            <label className="text-sm font-medium text-slate-300">Password</label>
             <div className="relative">
-              <Lock size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
                 type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Min. 8 characters"
-                className="w-full bg-gray-900 border border-gray-800 rounded-xl pl-11 pr-4 py-3 text-gray-200
-                  placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/30 transition-all"
+                className="w-full bg-slate-800 border border-slate-600 rounded-md pl-10 pr-4 py-2.5 text-sm text-slate-200
+                  placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50 transition-colors"
               />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-gray-300">Confirm Password</label>
+            <label className="text-sm font-medium text-slate-300">Confirm Password</label>
             <div className="relative">
-              <Lock size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
                 type="password"
                 required
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Confirm your password"
-                className="w-full bg-gray-900 border border-gray-800 rounded-xl pl-11 pr-4 py-3 text-gray-200
-                  placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/30 transition-all"
+                className="w-full bg-slate-800 border border-slate-600 rounded-md pl-10 pr-4 py-2.5 text-sm text-slate-200
+                  placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50 transition-colors"
               />
             </div>
           </div>
@@ -120,9 +120,9 @@ const Register: React.FC = () => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600
-              hover:from-cyan-400 hover:to-blue-500 text-white font-semibold py-3 rounded-xl
-              shadow-lg shadow-cyan-500/20 transition-all duration-200 mt-2
+            className="w-full flex items-center justify-center gap-2 bg-blue-600
+              hover:bg-blue-700 text-white font-medium py-2.5 rounded-md
+              shadow-sm transition-colors duration-150 mt-2
               disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? (
@@ -139,9 +139,9 @@ const Register: React.FC = () => {
           </button>
         </form>
 
-        <p className="text-center text-gray-500 text-sm mt-8">
+        <p className="text-center text-slate-500 text-sm mt-8">
           Already have an account?{' '}
-          <Link to="/login" className="text-cyan-400 hover:text-cyan-300 font-medium transition-colors">
+          <Link to="/login" className="text-blue-400 hover:text-blue-300 font-medium transition-colors">
             Sign in
           </Link>
         </p>

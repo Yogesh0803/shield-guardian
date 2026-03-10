@@ -69,18 +69,18 @@ const TagInput: React.FC<{
 
   return (
     <div className="space-y-1.5">
-      <label className="block text-sm font-medium text-gray-300">{label}</label>
+      <label className="block text-sm font-medium text-slate-300">{label}</label>
       <div className="flex gap-2">
         <div className="flex-1 relative">
-          {icon && <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">{icon}</div>}
+          {icon && <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">{icon}</div>}
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
-            className={`w-full bg-gray-800/80 border border-gray-700 rounded-xl px-4 py-2.5 text-gray-200
-              placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/40
+            className={`w-full bg-slate-800 border border-slate-600 rounded-md px-4 py-2.5 text-slate-200
+              placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50
               transition-all duration-200 ${icon ? 'pl-10' : ''}`}
           />
         </div>
@@ -93,13 +93,13 @@ const TagInput: React.FC<{
           {tags.map((tag) => (
             <span
               key={tag}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20"
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20"
             >
               {tag}
               <button
                 type="button"
                 onClick={() => removeTag(tag)}
-                className="hover:text-cyan-200 transition-colors"
+                className="hover:text-blue-200 transition-colors"
               >
                 <X size={12} />
               </button>
@@ -128,7 +128,7 @@ const PolicyCreate: React.FC = () => {
   // Form state
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [purpose, setPurpose] = useState<'block' | 'unblock'>('block');
+  const [purpose, setPurpose] = useState<'block' | 'unblock' | 'rate_limit' | 'isolate' | 'monitor' | 'alert'>('block');
   const [endpointId, setEndpointId] = useState(preselectedEndpoint);
   const [conditions, setConditions] = useState<PolicyConditions>({ ...emptyConditions });
   const [timeStart, setTimeStart] = useState('');
@@ -197,7 +197,7 @@ const PolicyCreate: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 p-6 lg:p-8">
+    <div className="min-h-screen bg-slate-900 p-6 lg:p-8">
       {/* Back */}
       <Button
         variant="ghost"
@@ -210,23 +210,23 @@ const PolicyCreate: React.FC = () => {
 
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-100 flex items-center gap-3">
-          <Shield className="text-cyan-500" size={28} />
+        <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
+          <Shield className="text-blue-500" size={28} />
           Create Policy
         </h1>
-        <p className="text-gray-400 mt-1">
+        <p className="text-slate-400 mt-1">
           Define a new firewall rule using natural language or manual configuration
         </p>
       </div>
 
       {/* Mode Tabs */}
-      <div className="flex gap-1 p-1 bg-gray-800/50 rounded-xl w-fit mb-8 border border-gray-700/50">
+      <div className="flex gap-1 p-1 bg-slate-700/30 rounded-md w-fit mb-8 border border-slate-700/50">
         <button
           onClick={() => setMode('natural')}
           className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
             mode === 'natural'
-              ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20'
-              : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/50'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
           }`}
         >
           <Brain size={16} />
@@ -236,8 +236,8 @@ const PolicyCreate: React.FC = () => {
           onClick={() => setMode('manual')}
           className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
             mode === 'manual'
-              ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20'
-              : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/50'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
           }`}
         >
           <Settings2 size={16} />
@@ -262,8 +262,8 @@ const PolicyCreate: React.FC = () => {
             {mode === 'natural' && (
               <Card>
                 <CardHeader>
-                  <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
-                    <Sparkles size={18} className="text-cyan-400" />
+                  <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+                    <Sparkles size={18} className="text-blue-400" />
                     Describe Your Policy
                   </h2>
                 </CardHeader>
@@ -288,9 +288,9 @@ const PolicyCreate: React.FC = () => {
 
                   {/* Parsed Result */}
                   {parsedResult && (
-                    <div className="mt-4 p-4 rounded-xl bg-gray-900/80 border border-cyan-500/20">
+                    <div className="mt-4 p-4 rounded-md bg-slate-700/50 border border-blue-500/20">
                       <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-sm font-semibold text-cyan-400 flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-blue-400 flex items-center gap-2">
                           <Sparkles size={14} />
                           Parsed Result
                         </h3>
@@ -298,7 +298,7 @@ const PolicyCreate: React.FC = () => {
                           {Math.round(parsedResult.confidence * 100)}% confident
                         </Badge>
                       </div>
-                      <p className="text-sm text-gray-300 mb-3">{parsedResult.explanation}</p>
+                      <p className="text-sm text-slate-300 mb-3">{parsedResult.explanation}</p>
                       <div className="flex flex-wrap gap-2 mb-3">
                         <Badge variant={parsedResult.purpose === 'block' ? 'danger' : 'success'}>
                           {parsedResult.purpose}
@@ -322,7 +322,7 @@ const PolicyCreate: React.FC = () => {
                           </Badge>
                         ))}
                       </div>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-slate-500">
                         You can edit the parsed conditions below before submitting.
                       </p>
                     </div>
@@ -334,8 +334,8 @@ const PolicyCreate: React.FC = () => {
             {/* Manual / Editable Form */}
             <Card>
               <CardHeader>
-                <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
-                  <Settings2 size={18} className="text-cyan-400" />
+                <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+                  <Settings2 size={18} className="text-blue-400" />
                   Policy Configuration
                 </h2>
               </CardHeader>
@@ -365,17 +365,21 @@ const PolicyCreate: React.FC = () => {
                 <Select
                   label="Purpose"
                   value={purpose}
-                  onChange={(e) => setPurpose(e.target.value as 'block' | 'unblock')}
+                  onChange={(e) => setPurpose(e.target.value as 'block' | 'unblock' | 'rate_limit' | 'isolate' | 'monitor' | 'alert')}
                   options={[
                     { value: 'block', label: 'Block Traffic' },
                     { value: 'unblock', label: 'Allow Traffic' },
+                    { value: 'rate_limit', label: 'Rate Limit' },
+                    { value: 'isolate', label: 'Isolate Endpoint' },
+                    { value: 'monitor', label: 'Monitor Traffic' },
+                    { value: 'alert', label: 'Alert on Activity' },
                   ]}
                 />
 
                 {/* Domains */}
                 <TagInput
                   label="Domains"
-                  tags={conditions.domains}
+                  tags={conditions.domains ?? []}
                   onChange={(tags) => updateConditions({ domains: tags })}
                   placeholder="e.g., malicious-site.com"
                   icon={<Globe size={16} />}
@@ -384,7 +388,7 @@ const PolicyCreate: React.FC = () => {
                 {/* IPs */}
                 <TagInput
                   label="IP Addresses"
-                  tags={conditions.ips}
+                  tags={conditions.ips ?? []}
                   onChange={(tags) => updateConditions({ ips: tags })}
                   placeholder="e.g., 192.168.1.0/24"
                   icon={<Network size={16} />}
@@ -393,7 +397,7 @@ const PolicyCreate: React.FC = () => {
                 {/* App Names */}
                 <TagInput
                   label="Application Names"
-                  tags={conditions.app_names}
+                  tags={conditions.app_names ?? []}
                   onChange={(tags) => updateConditions({ app_names: tags })}
                   placeholder="e.g., nginx, postgres"
                   icon={<AppWindow size={16} />}
@@ -410,7 +414,7 @@ const PolicyCreate: React.FC = () => {
 
                 {/* Time Range */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1.5 flex items-center gap-1">
+                  <label className="block text-sm font-medium text-slate-300 mb-1.5 flex items-center gap-1">
                     <Clock size={14} />
                     Time Range
                   </label>
@@ -430,7 +434,7 @@ const PolicyCreate: React.FC = () => {
 
                 {/* Anomaly Threshold */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1.5 flex items-center gap-1">
+                  <label className="block text-sm font-medium text-slate-300 mb-1.5 flex items-center gap-1">
                     <Activity size={14} />
                     Anomaly Threshold (0 - 1)
                   </label>
@@ -443,11 +447,11 @@ const PolicyCreate: React.FC = () => {
                     onChange={(e) =>
                       updateConditions({ anomaly_threshold: parseFloat(e.target.value) })
                     }
-                    className="w-full accent-cyan-500"
+                    className="w-full accent-blue-500"
                   />
-                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <div className="flex justify-between text-xs text-slate-500 mt-1">
                     <span>0 (sensitive)</span>
-                    <span className="text-cyan-400 font-medium">
+                    <span className="text-blue-400 font-medium">
                       {conditions.anomaly_threshold ?? 0.5}
                     </span>
                     <span>1 (permissive)</span>
@@ -462,47 +466,47 @@ const PolicyCreate: React.FC = () => {
             {/* Summary Card */}
             <Card className="sticky top-6">
               <CardHeader>
-                <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+                <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
                   Policy Summary
                 </h3>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <p className="text-xs text-gray-500">Name</p>
-                  <p className="text-sm text-gray-200">{name || '--'}</p>
+                  <p className="text-xs text-slate-500">Name</p>
+                  <p className="text-sm text-slate-200">{name || '--'}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Purpose</p>
+                  <p className="text-xs text-slate-500">Purpose</p>
                   <Badge variant={purpose === 'block' ? 'danger' : 'success'} className="mt-1">
                     {purpose === 'block' ? 'Block' : 'Allow'}
                   </Badge>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Domains</p>
-                  <p className="text-sm text-gray-300">
-                    {conditions.domains.length || 'None'}
+                  <p className="text-xs text-slate-500">Domains</p>
+                  <p className="text-sm text-slate-300">
+                    {conditions.domains?.length || 'None'}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">IPs</p>
-                  <p className="text-sm text-gray-300">
-                    {conditions.ips.length || 'None'}
+                  <p className="text-xs text-slate-500">IPs</p>
+                  <p className="text-sm text-slate-300">
+                    {conditions.ips?.length || 'None'}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Apps</p>
-                  <p className="text-sm text-gray-300">
-                    {conditions.app_names.length || 'None'}
+                  <p className="text-xs text-slate-500">Apps</p>
+                  <p className="text-sm text-slate-300">
+                    {conditions.app_names?.length || 'None'}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Countries</p>
-                  <p className="text-sm text-gray-300">
+                  <p className="text-xs text-slate-500">Countries</p>
+                  <p className="text-sm text-slate-300">
                     {conditions.geo_countries?.length || 'None'}
                   </p>
                 </div>
 
-                <div className="pt-4 border-t border-gray-700/30 space-y-3">
+                <div className="pt-4 border-t border-slate-700/30 space-y-3">
                   <Button
                     type="submit"
                     variant="primary"

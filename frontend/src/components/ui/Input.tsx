@@ -8,13 +8,13 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 
 export const Input: React.FC<InputProps> = ({ label, error, icon, className = '', ...props }) => (
   <div className="space-y-1.5">
-    {label && <label className="block text-sm font-medium text-gray-300">{label}</label>}
+    {label && <label className="block text-sm font-medium text-slate-300">{label}</label>}
     <div className="relative">
-      {icon && <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">{icon}</div>}
+      {icon && <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">{icon}</div>}
       <input
-        className={`w-full bg-gray-800/80 border border-gray-700 rounded-xl px-4 py-2.5 text-gray-200
-          placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/40
-          transition-all duration-200 ${icon ? 'pl-10' : ''} ${error ? 'border-red-500/50 focus:ring-red-500/40' : ''}
+        className={`w-full bg-slate-800 border border-slate-600 rounded-md px-3.5 py-2 text-sm text-slate-200
+          placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50
+          transition-colors duration-150 ${icon ? 'pl-10' : ''} ${error ? 'border-red-500/50 focus:ring-red-500/30' : ''}
           ${className}`}
         {...props}
       />
@@ -31,11 +31,11 @@ interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
 
 export const Select: React.FC<SelectProps> = ({ label, error, options, className = '', ...props }) => (
   <div className="space-y-1.5">
-    {label && <label className="block text-sm font-medium text-gray-300">{label}</label>}
+    {label && <label className="block text-sm font-medium text-slate-300">{label}</label>}
     <select
-      className={`w-full bg-gray-800/80 border border-gray-700 rounded-xl px-4 py-2.5 text-gray-200
-        focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/40
-        transition-all duration-200 ${error ? 'border-red-500/50' : ''} ${className}`}
+      className={`w-full bg-slate-800 border border-slate-600 rounded-md px-3.5 py-2 text-sm text-slate-200
+        focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50
+        transition-colors duration-150 ${error ? 'border-red-500/50' : ''} ${className}`}
       {...props}
     >
       {options.map((opt) => (
@@ -55,11 +55,11 @@ interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement
 
 export const Textarea: React.FC<TextareaProps> = ({ label, error, className = '', ...props }) => (
   <div className="space-y-1.5">
-    {label && <label className="block text-sm font-medium text-gray-300">{label}</label>}
+    {label && <label className="block text-sm font-medium text-slate-300">{label}</label>}
     <textarea
-      className={`w-full bg-gray-800/80 border border-gray-700 rounded-xl px-4 py-2.5 text-gray-200
-        placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/40
-        transition-all duration-200 resize-none ${error ? 'border-red-500/50' : ''} ${className}`}
+      className={`w-full bg-slate-800 border border-slate-600 rounded-md px-3.5 py-2 text-sm text-slate-200
+        placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50
+        transition-colors duration-150 resize-none ${error ? 'border-red-500/50' : ''} ${className}`}
       {...props}
     />
     {error && <p className="text-xs text-red-400">{error}</p>}

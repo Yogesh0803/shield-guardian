@@ -55,8 +55,14 @@ class GuardianShieldEngine:
             )
         self.pipeline = InferencePipeline()
         self.policy_engine = PolicyEngine()
-        self.enforcer = FirewallEnforcer(default_block_duration=config.block_duration)
-        self.enforce = enforce if not simulate else False
+        self.enforce = enforce
+        # Start the WinDivert packet filter when enforcement is enabled.
+        # The filter excludes loopback (127.0.0.1) so it won't interfere
+        # with the engine's own HTTP reports to the backend.
+        if self.enforce:
+            self.enforcer = FirewallEnforcer(default_block_duration=config.block_duration)
+        else:
+            self.enforcer = None
 
         self._running = False
         self._predictions: list = []
@@ -153,7 +159,8 @@ class GuardianShieldEngine:
         logger.info("Shutting down...")
         self._running = False
         self.capture.stop()
-        self.enforcer.cleanup()
+        if self.enforcer:
+            self.enforcer.cleanup()
         logger.info("Engine stopped.")
 
     def _on_flow_complete(self, flow: Flow):
@@ -261,7 +268,7 @@ class GuardianShieldEngine:
         )
 
         while self._running:
-            time.sleep(5)
+            time.sleep(10)
             try:
                 # Snapshot the batch under the lock; skip if empty.
                 with self._lock:
@@ -274,7 +281,7 @@ class GuardianShieldEngine:
                             )
                             _empty_cycles = 0
                         continue
-                    batch = list(self._predictions[:50])
+                    batch = list(self._predictions[:20])
                 _empty_cycles = 0
 
                 # Send to backend — only remove from buffer on success
@@ -290,7 +297,7 @@ class GuardianShieldEngine:
                         },
                     },
                     headers=headers,
-                    timeout=5,
+                    timeout=15,
                 )
                 if resp.status_code < 300:
                     with self._lock:
