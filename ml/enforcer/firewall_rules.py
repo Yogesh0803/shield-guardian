@@ -26,6 +26,12 @@ if sys.platform == "win32":
 elif TYPE_CHECKING:
     from .windows_packet_filter import WindowsPacketFilter
 
+# Structured security logger (graceful import — never crash if missing)
+try:
+    from backend.app.utils.security_logger import security_log as _sec_log
+except ImportError:
+    _sec_log = None  # type: ignore[assignment]
+
 # Strict regex: bare IPv4 or IPv6 address only — no CIDR, no spaces.
 _IPV4_RE = re.compile(
     r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$"
@@ -188,6 +194,8 @@ class FirewallEnforcer:
                     self._timers[ip] = timer
 
                 logger.info(f"Blocked IP {ip} for {dur}s (reason: {reason})")
+                if _sec_log:
+                    _sec_log.ip_blocked(ip=ip, reason=reason, duration=dur, app_name=app_name)
                 return True
 
         except Exception as e:
@@ -217,6 +225,8 @@ class FirewallEnforcer:
                     self._timers[ip].cancel()
                     del self._timers[ip]
                 logger.info(f"Unblocked IP {ip}")
+                if _sec_log:
+                    _sec_log.ip_unblocked(ip=ip)
                 return True
 
         except Exception as e:

@@ -40,6 +40,8 @@ class MLPredictionCreate(BaseModel):
     protocol: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
     timestamp: Optional[float] = None
+    # Explainability data — attached by the ML engine when available
+    explanation: Optional[Dict[str, Any]] = None
 
     @field_validator("anomaly_score", "confidence")
     @classmethod

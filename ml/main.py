@@ -28,7 +28,50 @@ from .capture.simulator import TrafficSimulator
 from .pipeline.inference import InferencePipeline, Prediction
 from .enforcer.policy_engine import PolicyEngine
 from .enforcer.firewall_rules import FirewallEnforcer
+from .monitoring.model_drift import drift_monitor
 from .config import config
+
+# Structured security logger — shared with the backend.
+# Import path works both as a package and standalone thanks to try/except.
+try:
+    from backend.app.utils.security_logger import security_log
+except ImportError:
+    # When running standalone (python -m ml.main), the backend package
+    # may not be on sys.path.  Import the module directly from its file.
+    import importlib.util as _ilu, os as _os
+    _spec = _ilu.spec_from_file_location(
+        "security_logger",
+        _os.path.join(
+            _os.path.dirname(__file__), "..", "backend", "app", "utils", "security_logger.py"
+        ),
+    )
+    if _spec and _spec.loader:
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        security_log = _mod.security_log
+    else:
+        # Ultimate fallback — create a local instance so the engine
+        # never crashes due to a missing logger.
+        from backend.app.utils.security_logger import SecurityLogger
+        security_log = SecurityLogger()
+
+# Rate limiter — same graceful import pattern
+try:
+    from backend.app.security.rate_limiter import rate_limiter
+except ImportError:
+    import importlib.util as _ilu2, os as _os2
+    _spec2 = _ilu2.spec_from_file_location(
+        "rate_limiter",
+        _os2.path.join(
+            _os2.path.dirname(__file__), "..", "backend", "app", "security", "rate_limiter.py"
+        ),
+    )
+    if _spec2 and _spec2.loader:
+        _mod2 = _ilu2.module_from_spec(_spec2)
+        _spec2.loader.exec_module(_mod2)
+        rate_limiter = _mod2.rate_limiter
+    else:
+        rate_limiter = None  # type: ignore[assignment]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -166,7 +209,33 @@ class GuardianShieldEngine:
     def _on_flow_complete(self, flow: Flow):
         """Called when a network flow is complete. Runs ML analysis."""
         try:
-            # Run inference pipeline
+            # ── Rate limiter pre-check ──────────────────────────────
+            # Check rate limits BEFORE running ML inference to short-
+            # circuit obvious volumetric abuse.
+            if rate_limiter is not None:
+                is_syn = "S" in getattr(flow, "tcp_flags", "")
+                allowed, reason = rate_limiter.check_packet(
+                    source_ip=flow.src_ip,
+                    dst_port=flow.dst_port,
+                    is_syn=is_syn,
+                )
+                if not allowed:
+                    security_log.rate_limit_exceeded(
+                        source_ip=flow.src_ip,
+                        request_count=0,  # exact count not needed here
+                        window_seconds=rate_limiter.config.window_seconds,
+                        limit=rate_limiter.config.max_packets_per_minute,
+                        reason=reason,
+                    )
+                    # Auto-block via enforcer if enforcement is enabled
+                    if self.enforce and self.enforcer:
+                        self.enforcer.block_ip(
+                            ip=flow.src_ip,
+                            reason=f"Rate limit: {reason}",
+                        )
+                    return  # skip ML pipeline for this flow
+
+            # ── ML inference pipeline ───────────────────────────────
             prediction = self.pipeline.analyze(flow)
 
             # Log prediction counter periodically
@@ -206,8 +275,22 @@ class GuardianShieldEngine:
                         self.pipeline.total_alerts += 1
                     prediction.action = policy_action
 
-            # Log the prediction
+            # Log the prediction (console + structured security log)
             self._log_prediction(prediction)
+
+            # Emit structured security log for every prediction
+            security_log.model_prediction(
+                source_ip=prediction.context.src_ip,
+                destination_ip=prediction.context.dst_ip,
+                anomaly_score=prediction.anomaly_score,
+                attack_type=prediction.attack_type,
+                confidence=prediction.confidence,
+                action=prediction.action,
+                model="ensemble",
+                app_name=prediction.context.app_name,
+                protocol=prediction.context.protocol,
+                explanation=prediction.explanation or {},
+            )
 
             # Enforce action
             if self.enforce and prediction.action == "block":
@@ -224,6 +307,25 @@ class GuardianShieldEngine:
                     app_name=prediction.context.app_name,
                     reason=f"{prediction.attack_type} (score: {prediction.anomaly_score:.2f})",
                 )
+
+                # Structured log for the block action
+                security_log.ip_blocked(
+                    ip=block_ip,
+                    reason=f"{prediction.attack_type} (score: {prediction.anomaly_score:.2f})",
+                    duration=self.enforcer.default_block_duration,
+                    app_name=prediction.context.app_name,
+                )
+
+                # Log anomaly detection event
+                if prediction.is_anomaly:
+                    security_log.anomaly_detected(
+                        source_ip=prediction.context.src_ip,
+                        destination_ip=prediction.context.dst_ip,
+                        anomaly_score=prediction.anomaly_score,
+                        attack_type=prediction.attack_type,
+                        confidence=prediction.confidence,
+                        app_name=prediction.context.app_name,
+                    )
 
             # Buffer for reporting to backend
             with self._lock:
@@ -309,6 +411,18 @@ class GuardianShieldEngine:
                         f"[REPORT] {len(batch)} predictions sent OK "
                         f"(total sent: {_total_sent})"
                     )
+
+                    # Push drift metrics alongside predictions
+                    try:
+                        metrics = drift_monitor.get_metrics()
+                        requests.post(
+                            f"{config.backend_url}/api/ml/metrics/update",
+                            json=metrics,
+                            headers=headers,
+                            timeout=5,
+                        )
+                    except Exception:
+                        pass  # non-critical — metrics are best-effort
                 elif resp.status_code == 403:
                     _consecutive_failures += 1
                     logger.error(

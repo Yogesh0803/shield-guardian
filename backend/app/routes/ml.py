@@ -18,6 +18,7 @@ from app.models.endpoint import Endpoint
 from app.database import get_db
 from app.config import settings
 from app.services.ml_loader import get_loaded_models
+from app.utils.security_logger import security_log
 
 import uuid as _uuid
 
@@ -316,9 +317,18 @@ def _create_alerts_from_predictions(predictions, db: Session, logger):
         src = pred.src_ip or "?"
         dst = pred.dst_ip or "?"
         port = pred.dst_port or "?"
+
+        # Include top explanation features if available
+        explanation_context = ""
+        expl = getattr(pred, "explanation", None) or {}
+        if isinstance(expl, dict) and expl.get("top_features"):
+            top_names = [f.get("feature", "") for f in expl["top_features"][:3]]
+            explanation_context = f" | top signals: {', '.join(top_names)}"
+
         msg = (
             f"{attack_type} detected: {src} → {dst}:{port} "
             f"(score: {pred.anomaly_score:.2f}, app: {pred.app_name or 'unknown'})"
+            f"{explanation_context}"
         )
 
         if pred.timestamp:
@@ -343,6 +353,18 @@ def _create_alerts_from_predictions(predictions, db: Session, logger):
     if alerts_to_add:
         db.add_all(alerts_to_add)
         logger.info(f"[INGEST] Queued {len(alerts_to_add)} alert(s) from predictions")
+        # Emit structured security log for each alert
+        for pred in predictions:
+            if pred.action in ("block", "alert"):
+                security_log.anomaly_detected(
+                    source_ip=pred.src_ip or "",
+                    destination_ip=pred.dst_ip or "",
+                    anomaly_score=pred.anomaly_score,
+                    attack_type=pred.attack_type or "Unknown",
+                    confidence=pred.confidence,
+                    action=pred.action,
+                    app_name=pred.app_name or "unknown",
+                )
 
 
 def _discover_endpoints_from_predictions(predictions, db: Session, logger):
@@ -399,3 +421,111 @@ def retrain_model(admin_user: User = Depends(require_admin)):
             datetime.now(timezone.utc) + timedelta(minutes=15)
         ).isoformat(),
     }
+
+
+# ============ Model Drift Metrics ============
+
+# In-memory drift metrics cache — updated by ingest_predictions and
+# also directly by the ML engine's drift_monitor when running in-process.
+_drift_metrics_cache: dict = {
+    "predictions_per_min": 0.0,
+    "anomaly_rate": 0.0,
+    "model_confidence_avg": 0.0,
+    "distribution_summary": {},
+    "action_distribution": {},
+    "drift_detected": False,
+    "drift_details": [],
+    "window_seconds": 300,
+    "total_tracked": 0,
+    "updated_at": None,
+}
+
+
+@router.post("/metrics/update")
+def update_drift_metrics(
+    metrics: dict,
+    _key: None = Depends(_verify_ml_api_key),
+):
+    """Accept drift metrics pushed by the ML engine.
+
+    Called periodically alongside prediction batches.  No auth beyond
+    the ML API key is required.
+    """
+    allowed_keys = {
+        "predictions_per_min", "anomaly_rate", "model_confidence_avg",
+        "distribution_summary", "action_distribution", "drift_detected",
+        "drift_details", "window_seconds", "total_tracked",
+    }
+    for k in allowed_keys:
+        if k in metrics:
+            _drift_metrics_cache[k] = metrics[k]
+    _drift_metrics_cache["updated_at"] = _tz_naive_utcnow().isoformat()
+    return {"status": "ok"}
+
+
+@router.get("/metrics")
+def get_ml_metrics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return ML model drift and performance metrics.
+
+    Merges real-time drift data from the ML engine with DB-derived
+    statistics for a comprehensive metrics overview.
+    """
+    # DB-derived stats for the last 5 minutes
+    now = _tz_naive_utcnow()
+    five_min_ago = now - timedelta(minutes=5)
+    recent_count = (
+        db.query(func.count(MLPrediction.id))
+        .filter(MLPrediction.timestamp >= five_min_ago)
+        .scalar()
+        or 0
+    )
+    anomaly_count = (
+        db.query(func.count(MLPrediction.id))
+        .filter(
+            MLPrediction.timestamp >= five_min_ago,
+            MLPrediction.action.in_(["block", "alert"]),
+        )
+        .scalar()
+        or 0
+    )
+    avg_confidence = (
+        db.query(func.avg(MLPrediction.confidence))
+        .filter(MLPrediction.timestamp >= five_min_ago)
+        .scalar()
+    )
+
+    db_metrics = {
+        "db_predictions_last_5min": recent_count,
+        "db_anomaly_count_last_5min": anomaly_count,
+        "db_avg_confidence_last_5min": round(float(avg_confidence), 4) if avg_confidence else 0.0,
+    }
+
+    # Merge with real-time drift cache
+    result = {**_drift_metrics_cache, **db_metrics}
+    return result
+
+
+# ============ Rate Limiter Stats ============
+
+@router.get("/rate-limiter/stats")
+def get_rate_limiter_stats(
+    current_user: User = Depends(get_current_user),
+):
+    """Return current rate limiter statistics."""
+    from app.security.rate_limiter import rate_limiter
+    return rate_limiter.get_stats()
+
+
+# ============ Threat Intel Lookup ============
+
+@router.get("/threat-intel/{ip}")
+def check_threat_intel(
+    ip: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Lookup IP reputation via threat intelligence providers."""
+    from app.security.threat_intel import threat_intel
+    return threat_intel.check_ip_reputation(ip)

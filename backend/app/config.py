@@ -14,6 +14,22 @@ class Settings(BaseSettings):
     # Must match the ML_API_KEY env-var on the ML engine side.
     ML_API_KEY: str = "change-me-in-production"
 
+    # ── Feature flags for new security modules ──────────────────────
+    # Rate limiter
+    RATE_LIMITER_ENABLED: bool = True
+    RATE_LIMITER_MAX_PACKETS_PER_MINUTE: int = 100
+    RATE_LIMITER_MAX_SYN_PER_SECOND: int = 20
+
+    # Threat intelligence
+    THREAT_INTEL_ENABLED: bool = False
+    ABUSEIPDB_API_KEY: str = ""
+
+    # Model drift monitoring
+    DRIFT_MONITORING_ENABLED: bool = True
+
+    # Explainable AI
+    EXPLAINABILITY_ENABLED: bool = True
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]

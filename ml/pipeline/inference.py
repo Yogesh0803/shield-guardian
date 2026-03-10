@@ -6,8 +6,8 @@ This is the main entry point for analyzing network traffic.
 import logging
 import time
 import threading
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -16,6 +16,8 @@ from ..context.context_engine import ContextEngine, FlowContext
 from ..models.anomaly_detector import AnomalyDetector
 from ..models.attack_classifier import AttackClassifier
 from ..models.lstm_cnn import LSTMCNNDetector
+from ..monitoring.model_drift import drift_monitor
+from ..explainability.explainer import explainer
 from ..config import config
 
 logger = logging.getLogger(__name__)
@@ -31,9 +33,11 @@ class Prediction:
     action: str  # "allow", "block", "alert"
     context: FlowContext
     timestamp: float
+    # Explainability data — populated when explainer is enabled
+    explanation: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "anomaly_score": round(self.anomaly_score, 4),
             "attack_type": self.attack_type,
             "confidence": round(self.confidence, 4),
@@ -47,6 +51,9 @@ class Prediction:
             "context": self.context.to_dict(),
             "timestamp": self.timestamp,
         }
+        if self.explanation:
+            d["explanation"] = self.explanation
+        return d
 
 
 class InferencePipeline:
@@ -80,6 +87,11 @@ class InferencePipeline:
         results["attack_classifier"] = self.attack_classifier.load()
         results["lstm_cnn"] = self.lstm_cnn.load()
         logger.info(f"Model load results: {results}")
+
+        # Initialize SHAP explainer for XGBoost if available
+        if self.attack_classifier.is_loaded and self.attack_classifier.model is not None:
+            explainer.init_shap(self.attack_classifier.model)
+
         return results
 
     @property
@@ -189,6 +201,26 @@ class InferencePipeline:
             f"action={action}, confidence={confidence:.3f}"
         )
 
+        # 5. Record prediction for drift monitoring
+        drift_monitor.record_prediction(
+            attack_type=attack_type,
+            confidence=confidence,
+            anomaly_score=anomaly_score,
+            is_anomaly=is_anomaly,
+            action=action,
+        )
+
+        # 6. Generate explanation for non-benign predictions
+        explanation = {}
+        if is_anomaly:
+            explanation = explainer.explain(
+                features=model_features,
+                prediction=attack_type,
+                confidence=confidence,
+                anomaly_score=anomaly_score,
+                scaler=self.attack_classifier.scaler if self.attack_classifier.is_loaded else None,
+            )
+
         return Prediction(
             anomaly_score=anomaly_score,
             is_anomaly=is_anomaly,
@@ -197,6 +229,7 @@ class InferencePipeline:
             action=action,
             context=context,
             timestamp=time.time(),
+            explanation=explanation,
         )
 
     def _context_anomaly_score(self, ctx: FlowContext) -> float:

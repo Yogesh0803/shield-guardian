@@ -44,5 +44,18 @@ class MLConfig:
         "WebAttack", "Botnet", "Infiltration",
     ])
 
+    # ── Feature flags for new modules ──────────────────────────────
+    # Rate limiter (runs before ML pipeline)
+    rate_limiter_enabled: bool = True
+
+    # Model drift monitoring
+    drift_monitoring_enabled: bool = True
+
+    # Explainable AI (SHAP / magnitude fallback)
+    explainability_enabled: bool = True
+
+    # Threat intelligence lookups
+    threat_intel_enabled: bool = os.getenv("THREAT_INTEL_ENABLED", "false").lower() == "true"
+
 
 config = MLConfig()
