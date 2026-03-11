@@ -25,6 +25,8 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     defaults:
       run:
         working-directory: backend
