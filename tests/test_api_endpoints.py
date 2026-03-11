@@ -29,11 +29,15 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base, get_db
 from app.main import app
+from app.middleware.auth import get_current_user
+from app.models.user import User
+from app.services.enforcer import enforcer
 
 # ------------------------------------------------------------------
 # Test DB fixtures
 # ------------------------------------------------------------------
-TEST_DB_URL = "sqlite:///./test_guardian_shield.db"
+TEST_DB_PATH = os.path.abspath("test_guardian_shield.db")
+TEST_DB_URL = f"sqlite:///{TEST_DB_PATH}"
 test_engine = create_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
 TestSession = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
@@ -45,9 +49,6 @@ def override_get_db():
     finally:
         db.close()
 
-
-app.dependency_overrides[get_db] = override_get_db
-
 client = TestClient(app)
 
 
@@ -58,13 +59,23 @@ def setup_db():
     Base.metadata.drop_all(bind=test_engine)
     test_engine.dispose()
     import pathlib
-    for name in ("test_guardian_shield.db", "test_guardian_shield.db-shm",
-                 "test_guardian_shield.db-wal"):
+    for name in (TEST_DB_PATH, f"{TEST_DB_PATH}-shm", f"{TEST_DB_PATH}-wal"):
         p = pathlib.Path(name)
         try:
             p.unlink(missing_ok=True)
         except PermissionError:
             pass
+
+
+@pytest.fixture(autouse=True)
+def apply_db_override():
+    previous_db_override = app.dependency_overrides.get(get_db)
+    app.dependency_overrides[get_db] = override_get_db
+    yield
+    if previous_db_override is None:
+        app.dependency_overrides.pop(get_db, None)
+    else:
+        app.dependency_overrides[get_db] = previous_db_override
 
 
 # ------------------------------------------------------------------
@@ -87,6 +98,32 @@ def _get_auth_token() -> str:
     if resp.status_code == 200:
         return resp.json().get("access_token", "")
     return ""
+
+
+@pytest.fixture
+def policy_auth_override():
+    previous_db_override = app.dependency_overrides.get(get_db)
+    previous_user_override = app.dependency_overrides.get(get_current_user)
+    Base.metadata.create_all(bind=test_engine)
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id="policy-test-user",
+        email="policytester@example.com",
+        hashed_password="hashed",
+        name="Policy Tester",
+        role="admin",
+    )
+    try:
+        yield {"Authorization": "Bearer policy-test-token"}
+    finally:
+        if previous_db_override is None:
+            app.dependency_overrides.pop(get_db, None)
+        else:
+            app.dependency_overrides[get_db] = previous_db_override
+        if previous_user_override is None:
+            app.dependency_overrides.pop(get_current_user, None)
+        else:
+            app.dependency_overrides[get_current_user] = previous_user_override
 
 
 # ------------------------------------------------------------------
@@ -196,3 +233,82 @@ class TestThreatIntelEndpoint:
     def test_lookup_requires_auth(self):
         resp = client.get("/api/ml/threat-intel/1.2.3.4")
         assert resp.status_code in (401, 403)
+
+
+class TestPolicyNLPWorkflow:
+    """Policy parsing and natural-language policy creation."""
+
+    def test_parse_youtube_schedule_policy(self, policy_auth_override):
+        resp = client.post(
+            "/api/policies/parse",
+            json={"input": "Block YouTube from 9 PM to 6 AM"},
+            headers=policy_auth_override,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["purpose"] == "block"
+        assert "youtube.com" in data["parsed"]["domains"]
+        assert "googlevideo.com" in data["parsed"]["domains"]
+        assert data["parsed"]["time_range"] == {"start": "21:00", "end": "06:00"}
+
+    def test_create_policy_from_natural_language_only(self, policy_auth_override):
+        resp = client.post(
+            "/api/policies",
+            json={
+                "name": "Sleep YouTube Block",
+                "natural_language": "Block YouTube from 9 PM to 6 AM",
+                "is_active": True,
+            },
+            headers=policy_auth_override,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["purpose"] == "block"
+        assert "youtube.com" in data["conditions"]["domains"]
+        assert data["conditions"]["time_range"] == {"start": "21:00", "end": "06:00"}
+
+
+class TestPolicyToggleWorkflow:
+    """Policy activation state can be toggled without deleting the policy."""
+
+    def test_toggle_policy_flips_is_active(self, policy_auth_override, monkeypatch):
+        monkeypatch.setattr(
+            enforcer,
+            "enforce_policy",
+            lambda policy_id, purpose, conditions: {"status": "enforced", "enforced": True},
+        )
+        monkeypatch.setattr(
+            enforcer,
+            "unenforce_policy",
+            lambda policy_id: {"status": "unenforced"},
+        )
+
+        create_resp = client.post(
+            "/api/policies",
+            json={
+                "name": "Toggle Me",
+                "purpose": "monitor",
+                "conditions": {"domains": ["example.com"]},
+                "is_active": True,
+            },
+            headers=policy_auth_override,
+        )
+        assert create_resp.status_code == 200
+        policy = create_resp.json()
+        assert policy["is_active"] is True
+
+        toggle_off_resp = client.patch(
+            f"/api/policies/{policy['id']}/toggle",
+            json={},
+            headers=policy_auth_override,
+        )
+        assert toggle_off_resp.status_code == 200
+        assert toggle_off_resp.json()["is_active"] is False
+
+        toggle_on_resp = client.patch(
+            f"/api/policies/{policy['id']}/toggle",
+            json={},
+            headers=policy_auth_override,
+        )
+        assert toggle_on_resp.status_code == 200
+        assert toggle_on_resp.json()["is_active"] is True

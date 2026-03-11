@@ -12,6 +12,7 @@ from typing import Dict
 @dataclass
 class TimeContext:
     hour: int
+    minute: int
     day_of_week: int  # 0=Monday, 6=Sunday
     is_business_hours: bool
     is_weekend: bool
@@ -42,6 +43,7 @@ class TimeFeatures:
 
         return TimeContext(
             hour=dt.hour,
+            minute=dt.minute,
             day_of_week=dt.weekday(),
             is_business_hours=self._is_business_hours(dt),
             is_weekend=dt.weekday() >= 5,

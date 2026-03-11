@@ -7,12 +7,24 @@ import time
 import logging
 import sys
 import subprocess
+import ctypes
+
+import pytest
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("test_packet_filter")
+
+
+def _is_admin() -> bool:
+    if sys.platform != "win32":
+        return False
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
 
 # ── Helpers ──────────────────────────────────────────────────────
 
@@ -35,6 +47,9 @@ def section(title: str):
 
 def test_packet_filter_standalone():
     """Test the WindowsPacketFilter directly."""
+    if not _is_admin():
+        pytest.skip("Administrator privileges required for packet filter test")
+
     from ml.enforcer.windows_packet_filter import WindowsPacketFilter
 
     section("Test 1: WindowsPacketFilter — standalone")
@@ -91,6 +106,9 @@ def test_packet_filter_standalone():
 
 def test_firewall_enforcer_integration():
     """Test FirewallEnforcer using the custom filter."""
+    if not _is_admin():
+        pytest.skip("Administrator privileges required for packet filter integration test")
+
     from ml.enforcer.firewall_rules import FirewallEnforcer
 
     section("Test 2: FirewallEnforcer — integration with custom filter")
@@ -156,6 +174,9 @@ def test_firewall_enforcer_integration():
 
 def test_isolation():
     """Test endpoint isolation via the custom filter."""
+    if not _is_admin():
+        pytest.skip("Administrator privileges required for isolation test")
+
     from ml.enforcer.firewall_rules import FirewallEnforcer
 
     section("Test 3: Endpoint isolation")

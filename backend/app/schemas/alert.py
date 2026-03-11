@@ -1,9 +1,11 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from datetime import datetime
 
 
 class AlertResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     severity: str
     category: str
@@ -13,9 +15,6 @@ class AlertResponse(BaseModel):
     app_id: Optional[str] = None
     endpoint_id: str
     timestamp: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class AlertQuery(BaseModel):

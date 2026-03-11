@@ -107,6 +107,8 @@ export interface Alert {
   endpoint_id: string;
   endpoint_name?: string;
   timestamp: string;
+  threat_intelligence_score?: number;
+  explanation_features?: string[];
 }
 
 // ==================== Network ====================
@@ -175,6 +177,7 @@ export interface MLStatus {
   total_predictions: number;
   total_blocked: number;
   total_alerts: number;
+  prediction_distribution?: Record<string, number>;
 }
 
 // ==================== Attack ====================

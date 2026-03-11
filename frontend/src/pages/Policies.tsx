@@ -84,11 +84,23 @@ const Policies: React.FC = () => {
   };
 
   const handleToggle = async (id: string) => {
+    const previousPolicy = policies.find((policy) => policy.id === id);
+    if (!previousPolicy) return;
+
     try {
+      setError(null);
       setTogglingId(id);
+      setPolicies((prev) =>
+        prev.map((policy) =>
+          policy.id === id ? { ...policy, is_active: !policy.is_active } : policy
+        )
+      );
       const updated = await policyService.toggle(id);
       setPolicies((prev) => prev.map((p) => (p.id === id ? updated : p)));
     } catch (err: unknown) {
+      setPolicies((prev) =>
+        prev.map((policy) => (policy.id === id ? previousPolicy : policy))
+      );
       const message = err instanceof Error ? err.message : 'Failed to toggle policy';
       setError(message);
     } finally {
@@ -241,6 +253,7 @@ const Policies: React.FC = () => {
                   <button
                     onClick={() => handleToggle(policy.id)}
                     disabled={togglingId === policy.id}
+                    type="button"
                     className="flex items-center gap-2 text-sm transition-colors duration-200 cursor-pointer disabled:opacity-50"
                   >
                     {policy.is_active ? (

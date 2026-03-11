@@ -47,7 +47,7 @@ def _build_detail_response(ep: Endpoint) -> EndpointResponse:
     return data
 
 
-@router.get("/", response_model=List[EndpointListResponse])
+@router.get("", response_model=List[EndpointListResponse])
 def list_endpoints(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

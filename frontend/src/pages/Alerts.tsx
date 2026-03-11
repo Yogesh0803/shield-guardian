@@ -14,6 +14,8 @@ import {
   Info,
   Wifi,
   WifiOff,
+  ShieldCheck,
+  List,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
@@ -257,6 +259,20 @@ const Alerts: React.FC = () => {
                         {alert.category === 'abnormal' && (
                           <Badge variant="danger">Abnormal</Badge>
                         )}
+                        {alert.threat_intelligence_score != null && (
+                          <Badge
+                            variant={
+                              alert.threat_intelligence_score >= 80
+                                ? 'danger'
+                                : alert.threat_intelligence_score >= 50
+                                ? 'warning'
+                                : 'success'
+                            }
+                          >
+                            <ShieldCheck size={12} className="mr-1" />
+                            Threat Intel: {alert.threat_intelligence_score}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-sm text-slate-200">{alert.message}</p>
                       <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
@@ -294,6 +310,19 @@ const Alerts: React.FC = () => {
                   {/* Expanded content */}
                   {isExpanded && (
                     <div className="mt-4 pt-4 border-t border-slate-700/30">
+                      {(alert.explanation_features ?? []).length > 0 && (
+                        <div className="mb-4">
+                          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                            <List size={12} />
+                            ML Explanation
+                          </h4>
+                          <ul className="list-disc list-inside space-y-1">
+                            {alert.explanation_features?.map((feature, idx) => (
+                              <li key={idx} className="text-xs text-slate-300">{feature}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                       <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                         Flow Context
                       </h4>

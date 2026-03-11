@@ -3,6 +3,12 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import logging
 
+# Ensure all loggers emit at INFO level so scheduler / enforcer logs are visible
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)-40s %(levelname)-7s %(message)s",
+)
+
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -32,6 +38,8 @@ _prune_logger = logging.getLogger("guardian-shield.prune")
 _PREDICTION_RETENTION_DAYS = 7
 # How often the pruning task runs (seconds).
 _PRUNE_INTERVAL_SECONDS = 3600
+# How often the time-range policy scheduler runs (seconds).
+_TIME_CHECK_INTERVAL_SECONDS = 10
 
 
 async def _prune_old_predictions():
@@ -58,6 +66,29 @@ async def _prune_old_predictions():
             _prune_logger.warning(f"Prediction pruning failed: {e}")
         finally:
             db.close()
+
+
+_time_logger = logging.getLogger("guardian-shield.time-scheduler")
+
+
+async def _check_time_based_policies():
+    """Background task that activates/deactivates policies based on their time_range."""
+    _time_logger.info("Time-based policy scheduler STARTED (interval=%ds)", _TIME_CHECK_INTERVAL_SECONDS)
+    while True:
+        try:
+            db = SessionLocal()
+            try:
+                _time_logger.debug(
+                    "Scheduler tick — deferred=%d, enforced_domains=%d",
+                    len(enforcer._deferred_policies),
+                    len(enforcer.blocked_domains),
+                )
+                enforcer.check_time_policies_from_db(db)
+            finally:
+                db.close()
+        except Exception as e:
+            _time_logger.warning(f"Time-based policy check failed: {e}")
+        await asyncio.sleep(_TIME_CHECK_INTERVAL_SECONDS)
 
 
 @asynccontextmanager
@@ -89,13 +120,20 @@ async def lifespan(app: FastAPI):
 
     # Start background task that prunes old ml_predictions rows
     prune_task = asyncio.create_task(_prune_old_predictions())
+    # Start background task for time-based policy enforcement
+    time_task = asyncio.create_task(_check_time_based_policies())
 
     yield
 
-    # Shutdown: cancel the pruning task
+    # Shutdown: cancel background tasks
     prune_task.cancel()
+    time_task.cancel()
     try:
         await prune_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await time_task
     except asyncio.CancelledError:
         pass
 
@@ -105,6 +143,7 @@ app = FastAPI(
     description="Backend API for Guardian Shield — a context-aware ML firewall with real-time threat detection",
     version="1.0.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 # CORS middleware

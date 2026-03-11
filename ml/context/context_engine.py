@@ -29,6 +29,7 @@ class FlowContext:
 
     # Time context
     hour: int
+    minute: int
     day_of_week: int
     is_business_hours: bool
     time_since_last_request: float
@@ -119,6 +120,7 @@ class FlowContext:
             "process_id": self.process_id,
             "app_trust_score": self.app_trust_score,
             "hour": self.hour,
+            "minute": self.minute,
             "day_of_week": self.day_of_week,
             "is_business_hours": self.is_business_hours,
             "time_since_last_request": self.time_since_last_request,
@@ -177,6 +179,7 @@ class ContextEngine:
             process_id=pid,
             app_trust_score=trust,
             hour=time_ctx.hour,
+            minute=time_ctx.minute,
             day_of_week=time_ctx.day_of_week,
             is_business_hours=time_ctx.is_business_hours,
             time_since_last_request=time_ctx.time_since_last_request,

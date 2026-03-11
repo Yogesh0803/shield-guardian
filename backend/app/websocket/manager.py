@@ -1,7 +1,7 @@
 from typing import Dict, List
 from fastapi import WebSocket
 
-MAX_CONNECTIONS_PER_CHANNEL = 5
+MAX_CONNECTIONS_PER_CHANNEL = 50
 
 
 class ConnectionManager:

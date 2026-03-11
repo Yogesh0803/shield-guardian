@@ -259,7 +259,7 @@ class PolicyEngine:
                 ctx.app_name.lower() in [a.lower() for a in policy.app_names]
             )
 
-        # Time range (with schedule support)
+        # Time range (with schedule support) — use minute precision
         active_time_range = policy.time_range
         active_days = policy.days_of_week
         if policy.schedule:
@@ -267,13 +267,16 @@ class PolicyEngine:
             active_days = policy.schedule.get("days", active_days)
 
         if active_time_range:
-            start = int(active_time_range.get("start", "0").split(":")[0])
-            end = int(active_time_range.get("end", "24").split(":")[0])
-            if start <= end:
-                checks.append(start <= ctx.hour < end)
+            start_parts = active_time_range.get("start", "0:00").split(":")
+            end_parts = active_time_range.get("end", "24:00").split(":")
+            start_min = int(start_parts[0]) * 60 + (int(start_parts[1]) if len(start_parts) > 1 else 0)
+            end_min = int(end_parts[0]) * 60 + (int(end_parts[1]) if len(end_parts) > 1 else 0)
+            now_min = ctx.hour * 60 + getattr(ctx, 'minute', 0)
+            if start_min <= end_min:
+                checks.append(start_min <= now_min < end_min)
             else:
                 # Wraps midnight (e.g., 22:00 - 06:00)
-                checks.append(ctx.hour >= start or ctx.hour < end)
+                checks.append(now_min >= start_min or now_min < end_min)
 
         # Days of week
         if active_days:

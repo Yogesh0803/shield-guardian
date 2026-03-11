@@ -1,9 +1,11 @@
 import asyncio
+import json
 import uuid
 import psutil
 from datetime import datetime, timezone
 
 from fastapi import WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 
 from app.websocket.manager import manager
 
@@ -70,6 +72,23 @@ def _get_real_connections():
     return connections
 
 
+async def _drain_client_messages(websocket: WebSocket, channel: str):
+    """Read and handle incoming client messages (ping/pong keepalive)."""
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                msg = json.loads(raw)
+                if msg.get("type") == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except (json.JSONDecodeError, TypeError):
+                pass
+    except WebSocketDisconnect:
+        pass
+    finally:
+        manager.disconnect(websocket, channel)
+
+
 async def websocket_network_endpoint(websocket: WebSocket):
     """WebSocket handler for real-time network data."""
     await manager.connect(websocket, "network")
@@ -77,8 +96,14 @@ async def websocket_network_endpoint(websocket: WebSocket):
     # Per-connection state — each client tracks its own deltas.
     prev_stats = await asyncio.to_thread(_get_real_network_stats)
 
+    # Launch a background task to drain incoming messages (keepalive pings)
+    drain_task = asyncio.create_task(_drain_client_messages(websocket, "network"))
+
     try:
         while True:
+            if websocket.client_state != WebSocketState.CONNECTED:
+                break
+
             # Get real network stats off the event loop
             current = await asyncio.to_thread(_get_real_network_stats)
 
@@ -109,7 +134,10 @@ async def websocket_network_endpoint(websocket: WebSocket):
             await manager.send_personal_message(usage_data, websocket)
 
             await asyncio.sleep(3)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
+        drain_task.cancel()
         manager.disconnect(websocket, "network")
 
 
@@ -155,8 +183,13 @@ async def websocket_alerts_endpoint(websocket: WebSocket):
         finally:
             db.close()
 
+    drain_task = asyncio.create_task(_drain_client_messages(websocket, "alerts"))
+
     try:
         while True:
+            if websocket.client_state != WebSocketState.CONNECTED:
+                break
+
             alerts, newest_ts = await asyncio.to_thread(_fetch_alerts, last_seen_ts)
 
             for alert_data in alerts:
@@ -168,7 +201,10 @@ async def websocket_alerts_endpoint(websocket: WebSocket):
                 last_seen_ts = newest_ts
 
             await asyncio.sleep(3)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
+        drain_task.cancel()
         manager.disconnect(websocket, "alerts")
 
 
@@ -214,8 +250,13 @@ async def websocket_predictions_endpoint(websocket: WebSocket):
         finally:
             db.close()
 
+    drain_task = asyncio.create_task(_drain_client_messages(websocket, "predictions"))
+
     try:
         while True:
+            if websocket.client_state != WebSocketState.CONNECTED:
+                break
+
             preds, newest_ts = await asyncio.to_thread(_fetch_predictions, last_seen_ts)
 
             for pred_data in preds:
@@ -227,5 +268,8 @@ async def websocket_predictions_endpoint(websocket: WebSocket):
                 last_seen_ts = newest_ts
 
             await asyncio.sleep(2)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
+        drain_task.cancel()
         manager.disconnect(websocket, "predictions")

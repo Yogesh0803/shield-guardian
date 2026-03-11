@@ -24,6 +24,34 @@ import sys
 import threading
 import time
 
+# ── Windows admin helpers ───────────────────────────────────────────────────
+
+def _is_admin() -> bool:
+    """Return True if the current process has Administrator privileges."""
+    if platform.system() != "Windows":
+        return True  # elevation not needed on Unix
+    try:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        return False
+
+
+def _elevate_and_relaunch():
+    """Re-launch this script as Administrator via a UAC prompt, then exit."""
+    import ctypes
+    script = os.path.abspath(__file__)
+    params = ' '.join(f'"{a}"' for a in sys.argv[1:]) if sys.argv[1:] else ''
+    # ShellExecuteW with "runas" triggers the UAC elevation dialog
+    result = ctypes.windll.shell32.ShellExecuteW(
+        None, "runas", sys.executable, f'"{script}" {params}'.strip(), os.getcwd(), 1,
+    )
+    if result <= 32:
+        print(f"\033[31mFailed to elevate — please right-click PowerShell → 'Run as Administrator'.\033[0m")
+        sys.exit(1)
+    sys.exit(0)  # non-elevated process exits; elevated one takes over
+
+
 # ── Colour helpers (ANSI, works in Windows 10+ and all Unix terminals) ──────
 
 RESET  = "\033[0m"
@@ -43,6 +71,15 @@ RUNNER_TAG   = f"{BOLD}{YELLOW}[runner]  {RESET}"
 ROOT_DIR     = os.path.dirname(os.path.abspath(__file__))
 BACKEND_DIR  = os.path.join(ROOT_DIR, "backend")
 FRONTEND_DIR = os.path.join(ROOT_DIR, "frontend")
+
+
+def _pythonpath_with(*paths: str) -> str:
+    """Prepend paths to PYTHONPATH without discarding the caller's environment."""
+    existing = os.environ.get("PYTHONPATH", "")
+    ordered = [path for path in paths if path]
+    if existing:
+        ordered.append(existing)
+    return os.pathsep.join(ordered)
 
 # ── Global state ────────────────────────────────────────────────────────────
 
@@ -72,7 +109,7 @@ def _get_lan_ip() -> str:
 
 
 def _enable_win_ansi():
-    """Enable ANSI escape processing on Windows 10+."""
+    """Enable ANSI escape processing on Windows 10+ and set UTF-8 output."""
     if platform.system() != "Windows":
         return
     try:
@@ -84,6 +121,12 @@ def _enable_win_ansi():
         kernel32.SetConsoleMode(handle, mode.value | 0x0004)  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
     except Exception:
         pass  # graceful fallback — colours just won't render
+    # Ensure stdout/stderr can handle Unicode (box-drawing chars, etc.)
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 
 def _log(tag: str, msg: str):
@@ -215,6 +258,12 @@ def main():
     run_backend  = args.backend  or (not args.backend and not args.frontend)
     run_frontend = args.frontend or (not args.backend and not args.frontend)
 
+    # ── Auto-elevate on Windows (admin is required for policy enforcement) ──
+    if run_backend and platform.system() == "Windows" and not _is_admin():
+        print(f"{YELLOW}Backend needs Administrator privileges for policy enforcement.{RESET}")
+        print(f"{YELLOW}Requesting elevation (UAC prompt)…{RESET}")
+        _elevate_and_relaunch()
+
     # ── LAN mode: detect local IP ───────────────────────────────────────────
     lan_ip: str | None = None
     if args.lan:
@@ -244,6 +293,7 @@ def main():
             "--port", "8000",
         ]
         backend_env: dict[str, str] = {}
+        backend_env["PYTHONPATH"] = _pythonpath_with(ROOT_DIR, BACKEND_DIR)
         if lan_ip:
             # Allow CORS from both localhost and the LAN IP
             backend_env["CORS_ORIGINS"] = (

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Optional, List
 from datetime import datetime
 
@@ -16,15 +16,14 @@ class AppCreate(BaseModel):
 
 
 class AppResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     process_name: str
     status: str
     endpoint_id: str
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class EndpointCreate(BaseModel):
@@ -34,17 +33,18 @@ class EndpointCreate(BaseModel):
 
 
 class PolicyBrief(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     description: Optional[str] = None
     purpose: Optional[str] = None
     is_active: bool
 
-    class Config:
-        from_attributes = True
-
 
 class AlertBrief(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     severity: str
     category: Optional[str] = None
@@ -54,11 +54,10 @@ class AlertBrief(BaseModel):
     app_name: Optional[str] = None
     timestamp: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class EndpointResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     ip_address: str
@@ -69,11 +68,10 @@ class EndpointResponse(BaseModel):
     recent_alerts: List[AlertBrief] = []
     traffic_logs: int = 0
 
-    class Config:
-        from_attributes = True
-
 
 class EndpointListResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     ip_address: str
@@ -82,5 +80,3 @@ class EndpointListResponse(BaseModel):
     applications: List[AppResponse] = []
     traffic_logs: int = 0
 
-    class Config:
-        from_attributes = True

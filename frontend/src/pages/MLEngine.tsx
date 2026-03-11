@@ -17,6 +17,7 @@ import {
   AppWindow,
   Globe,
   Clock,
+  PieChart,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
@@ -25,7 +26,13 @@ import { Skeleton, StatCardSkeleton } from '../components/ui/Skeleton';
 import { mlService } from '../services/ml.service';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuth } from '../context/AuthContext';
+import { Doughnut } from 'react-chartjs-2';
+import {
+  Chart as ChartJS, ArcElement, Tooltip, Legend,
+} from 'chart.js';
 import type { MLStatus, MLPrediction, WSPredictionMessage } from '../types';
+
+ChartJS.register(ArcElement, Tooltip, Legend);
 
 const MAX_PREDICTIONS = 50;
 
@@ -348,6 +355,105 @@ const MLEngine: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Prediction Distribution */}
+      {(() => {
+        const dist = status?.prediction_distribution ?? {};
+        const chartData = Object.entries(dist)
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value);
+        if (chartData.length === 0) return null;
+
+        const chartColors = [
+          'rgba(34, 211, 238, 0.8)',  // cyan
+          'rgba(239, 68, 68, 0.8)',   // red
+          'rgba(245, 158, 11, 0.8)',  // amber
+          'rgba(139, 92, 246, 0.8)',  // purple
+          'rgba(16, 185, 129, 0.8)',  // emerald
+          'rgba(236, 72, 153, 0.8)',  // pink
+        ];
+        const total = chartData.reduce((sum, d) => sum + d.value, 0);
+
+        return (
+          <Card className="mb-8">
+            <CardHeader>
+              <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+                <PieChart size={18} className="text-blue-400" />
+                Prediction Distribution
+              </h2>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                {/* Doughnut Chart */}
+                <div className="h-64 flex items-center justify-center">
+                  <Doughnut
+                    data={{
+                      labels: chartData.map((d) => d.name),
+                      datasets: [
+                        {
+                          data: chartData.map((d) => d.value),
+                          backgroundColor: chartColors.slice(0, chartData.length),
+                          borderWidth: 0,
+                        },
+                      ],
+                    }}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      cutout: '65%',
+                      plugins: {
+                        legend: {
+                          display: false,
+                        },
+                        tooltip: {
+                          callbacks: {
+                            label: (ctx) => {
+                              const v = ctx.parsed;
+                              const pct = total > 0 ? Math.round((v / total) * 100) : 0;
+                              return ` ${ctx.label}: ${v.toLocaleString()} (${pct}%)`;
+                            },
+                          },
+                        },
+                      },
+                    }}
+                  />
+                </div>
+                {/* Legend / breakdown */}
+                <div className="space-y-3">
+                  {chartData.map((d, i) => {
+                    const pct = total > 0 ? Math.round((d.value / total) * 100) : 0;
+                    return (
+                      <div key={d.name}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-slate-300 capitalize flex items-center gap-2">
+                            <span
+                              className="inline-block w-2.5 h-2.5 rounded-full"
+                              style={{ backgroundColor: chartColors[i % chartColors.length] }}
+                            />
+                            {d.name}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            {d.value.toLocaleString()} ({pct}%)
+                          </span>
+                        </div>
+                        <div className="h-2 bg-slate-600/30 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-700 ease-out"
+                            style={{
+                              width: `${pct}%`,
+                              backgroundColor: chartColors[i % chartColors.length],
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Real-time Prediction Feed */}
       <Card>

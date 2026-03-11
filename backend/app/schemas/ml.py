@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
@@ -91,6 +91,8 @@ class MLPredictionIngestResponse(BaseModel):
 
 
 class MLPredictionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     anomaly_score: float
     attack_type: Optional[str] = None
@@ -102,5 +104,3 @@ class MLPredictionResponse(BaseModel):
     context_json: Optional[Dict[str, Any]] = None
     timestamp: datetime
 
-    class Config:
-        from_attributes = True

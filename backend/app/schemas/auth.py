@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from typing import Optional
 from datetime import datetime
 
@@ -15,14 +15,13 @@ class RegisterRequest(BaseModel):
 
 
 class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     email: str
     name: str
     role: str
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class AuthResponse(BaseModel):

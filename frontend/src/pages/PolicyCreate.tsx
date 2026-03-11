@@ -154,6 +154,11 @@ const PolicyCreate: React.FC = () => {
       setDescription(result.description || nlInput);
       setPurpose(result.purpose);
       setConditions(result.parsed);
+      // Sync time inputs from parsed time_range
+      if (result.parsed.time_range) {
+        setTimeStart(result.parsed.time_range.start || '');
+        setTimeEnd(result.parsed.time_range.end || '');
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to parse policy description';
       setError(message);
@@ -419,15 +424,21 @@ const PolicyCreate: React.FC = () => {
                     Time Range
                   </label>
                   <div className="grid grid-cols-2 gap-3">
-                    <Input
-                      placeholder="Start (e.g., 09:00)"
+                    <input
+                      type="time"
                       value={timeStart}
                       onChange={(e) => setTimeStart(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-600 rounded-md px-4 py-2.5 text-slate-200
+                        focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50
+                        transition-all duration-200 [color-scheme:dark]"
                     />
-                    <Input
-                      placeholder="End (e.g., 17:00)"
+                    <input
+                      type="time"
                       value={timeEnd}
                       onChange={(e) => setTimeEnd(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-600 rounded-md px-4 py-2.5 text-slate-200
+                        focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50
+                        transition-all duration-200 [color-scheme:dark]"
                     />
                   </div>
                 </div>

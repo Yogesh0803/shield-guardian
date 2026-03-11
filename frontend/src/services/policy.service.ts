@@ -22,7 +22,7 @@ export const policyService = {
   },
 
   async toggle(id: string): Promise<Policy> {
-    const res = await api.patch<Policy>(`/policies/${id}/toggle`);
+    const res = await api.patch<Policy>(`/policies/${id}/toggle`, {});
     return res.data;
   },
 

@@ -31,7 +31,7 @@ def _alert_to_dict(row):
     }
 
 
-@router.get("/")
+@router.get("")
 def list_alerts(
     endpoint_id: Optional[str] = Query(None),
     app_id: Optional[str] = Query(None),
