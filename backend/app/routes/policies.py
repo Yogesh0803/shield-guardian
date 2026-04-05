@@ -1,4 +1,6 @@
 import logging
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,11 +9,15 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.policy import Policy
+from app.models.ml_prediction import MLPrediction
+from app.models.endpoint import Endpoint
 from app.models.user import User
 from app.schemas.policy import (
     NLPPolicyParse,
     NLPPolicyParseResponse,
     PolicyCreate,
+    PolicySimulationRequest,
+    PolicySimulationResponse,
     PolicyResponse,
 )
 from app.services.enforcer import enforcer
@@ -21,6 +27,159 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/policies", tags=["Policies"])
 _parser = NLPPolicyParser()
+
+
+def _safe_list(value) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _safe_dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _flow_matches_conditions(
+    purpose: str,
+    conditions: Dict[str, object],
+    row: MLPrediction,
+    endpoint_ip: Optional[str],
+) -> bool:
+    checks: List[bool] = []
+    conditions = _safe_dict(conditions)
+    context = _safe_dict(row.context_json)
+
+    src_ip = row.src_ip or ""
+    dst_ip = row.dst_ip or ""
+    app_name = (row.app_name or context.get("app_name") or "").lower()
+    protocol = (row.protocol or "").upper()
+    dst_port = row.dst_port
+    anomaly_score = float(row.anomaly_score or 0.0)
+    confidence = float(row.confidence or 0.0)
+    attack_type = row.attack_type or "Unknown"
+
+    # endpoint scoping from endpoint_id in the policy
+    if endpoint_ip:
+        checks.append(src_ip == endpoint_ip or dst_ip == endpoint_ip)
+
+    ips = _safe_list(conditions.get("ips"))
+    if ips:
+        checks.append(src_ip in ips or dst_ip in ips)
+
+    app_names = [str(a).lower() for a in _safe_list(conditions.get("app_names"))]
+    if app_names:
+        checks.append(app_name in app_names)
+
+    protocols = [str(p).upper() for p in _safe_list(conditions.get("protocols"))]
+    if protocols:
+        checks.append(protocol in protocols)
+
+    ports = _safe_list(conditions.get("ports"))
+    if ports:
+        port_match = False
+        for p in ports:
+            if not isinstance(p, dict):
+                continue
+            if dst_port != p.get("port"):
+                continue
+            allowed_protocols = [str(x).upper() for x in _safe_list(p.get("protocol"))]
+            if not allowed_protocols or protocol in allowed_protocols:
+                port_match = True
+                break
+        checks.append(port_match)
+
+    anomaly_threshold = conditions.get("anomaly_threshold")
+    if anomaly_threshold is not None:
+        checks.append(anomaly_score >= float(anomaly_threshold))
+
+    confidence_threshold = conditions.get("confidence_threshold")
+    if confidence_threshold is not None:
+        checks.append(confidence >= float(confidence_threshold))
+
+    attack_types = [str(a) for a in _safe_list(conditions.get("attack_types"))]
+    if attack_types:
+        checks.append(attack_type in attack_types)
+
+    geo_countries = [str(c).upper() for c in _safe_list(conditions.get("geo_countries"))]
+    if geo_countries:
+        code = str(context.get("dest_country_code") or context.get("dest_country") or "").upper()
+        checks.append(code in geo_countries)
+
+    # Time-window checks (local hour/day inferred from prediction timestamp)
+    schedule = _safe_dict(conditions.get("schedule"))
+    time_range = _safe_dict(schedule.get("time_range") or conditions.get("time_range"))
+    days_of_week = schedule.get("days") if schedule.get("days") is not None else conditions.get("days_of_week")
+
+    ts = row.timestamp
+    if ts is not None:
+        ts_local = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+        now_local = ts_local.astimezone()
+        minute = now_local.hour * 60 + now_local.minute
+        if time_range and time_range.get("start") and time_range.get("end"):
+            sh, sm = [int(x) for x in str(time_range["start"]).split(":")]
+            eh, em = [int(x) for x in str(time_range["end"]).split(":")]
+            start_m = sh * 60 + sm
+            end_m = eh * 60 + em
+            if start_m <= end_m:
+                checks.append(start_m <= minute < end_m)
+            else:
+                checks.append(minute >= start_m or minute < end_m)
+        if isinstance(days_of_week, list) and days_of_week:
+            checks.append(now_local.weekday() in days_of_week)
+
+    if not checks:
+        return False
+
+    # For non-block purposes, condition match still means this policy would have affected flow.
+    # The caller decides wording via purpose.
+    return all(checks)
+
+
+def _estimate_risk(rows: List[MLPrediction], affected: List[MLPrediction], purpose: str) -> Dict[str, object]:
+    total = max(len(rows), 1)
+    if not affected:
+        return {
+            "score": 0,
+            "level": "low",
+            "reason": "No affected historical flows",
+        }
+
+    avg_anomaly = sum(float(r.anomaly_score or 0.0) for r in affected) / len(affected)
+    avg_conf = sum(float(r.confidence or 0.0) for r in affected) / len(affected)
+    attack_like = sum(1 for r in affected if (r.attack_type or "").lower() not in ("benign", "unknown"))
+    affected_ratio = len(affected) / total
+
+    purpose_multiplier = {
+        "block": 1.0,
+        "isolate": 0.95,
+        "rate_limit": 0.8,
+        "alert": 0.5,
+        "monitor": 0.4,
+        "unblock": 0.7,
+    }.get(purpose, 0.7)
+
+    raw = (
+        (affected_ratio * 45)
+        + (avg_anomaly * 25)
+        + (avg_conf * 15)
+        + ((attack_like / max(len(affected), 1)) * 15)
+    ) * purpose_multiplier
+    score = int(max(0, min(100, round(raw))))
+
+    if score >= 75:
+        level = "critical"
+    elif score >= 50:
+        level = "high"
+    elif score >= 25:
+        level = "medium"
+    else:
+        level = "low"
+
+    return {
+        "score": score,
+        "level": level,
+        "avg_anomaly_score": round(avg_anomaly, 3),
+        "avg_confidence": round(avg_conf, 3),
+        "affected_ratio": round(affected_ratio, 4),
+    }
 
 
 def _rule_type_for(parsed: ParsedPolicy) -> str:
@@ -223,6 +382,68 @@ def create_policy(
             logger.error("Enforcement failed for %r: %s", policy.name, exc)
 
     return PolicyResponse.model_validate(policy)
+
+
+@router.post("/simulate", response_model=PolicySimulationResponse)
+def simulate_policy(
+    payload: PolicySimulationRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    policy = _build_policy_from_request(payload.policy)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=payload.hours)
+
+    query = (
+        db.query(MLPrediction)
+        .filter(MLPrediction.timestamp >= cutoff)
+        .order_by(MLPrediction.timestamp.desc())
+        .limit(payload.max_samples)
+    )
+    rows: List[MLPrediction] = query.all()
+
+    # Fallback to latest available historical (seeded/demo) data when
+    # no recent flows exist inside the requested window.
+    if not rows:
+        rows = (
+            db.query(MLPrediction)
+            .order_by(MLPrediction.timestamp.desc())
+            .limit(min(payload.max_samples, 2000))
+            .all()
+        )
+
+    endpoint_ip: Optional[str] = None
+    if policy.endpoint_id:
+        ep = db.query(Endpoint.ip_address).filter(Endpoint.id == policy.endpoint_id).first()
+        endpoint_ip = ep[0] if ep else None
+
+    affected = [
+        row
+        for row in rows
+        if _flow_matches_conditions(policy.purpose or "block", policy.conditions or {}, row, endpoint_ip)
+    ]
+
+    # Domains are best-effort from context; fallback to destination IP.
+    app_counts = Counter((row.app_name or "unknown") for row in affected)
+    domain_counts = Counter(
+        str(_safe_dict(row.context_json).get("dest_domain") or row.dst_ip or "unknown")
+        for row in affected
+    )
+
+    top_apps = [{"name": k, "count": v} for k, v in app_counts.most_common(5)]
+    top_domains = [{"name": k, "count": v} for k, v in domain_counts.most_common(5)]
+
+    total = len(rows)
+    affected_count = len(affected)
+    would_block_percent = round((affected_count / total) * 100, 2) if total else 0.0
+
+    return PolicySimulationResponse(
+        total_flows=total,
+        affected_flows=affected_count,
+        would_block_percent=would_block_percent,
+        top_affected_apps=top_apps,
+        top_affected_domains=top_domains,
+        estimated_risk=_estimate_risk(rows, affected, policy.purpose or "block"),
+    )
 
 
 @router.delete("/{policy_id}", status_code=status.HTTP_204_NO_CONTENT)

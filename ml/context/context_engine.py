@@ -39,6 +39,11 @@ class FlowContext:
     size_deviation: float
     destination_novelty: float
     port_novelty: float
+    baseline_profile_key: str
+    baseline_time_bucket: str
+    baseline_changed_7d: bool
+    baseline_change_score: float
+    baseline_change_reason: str
 
     # Geo context
     dest_country: str
@@ -127,6 +132,11 @@ class FlowContext:
             "rate_deviation": self.rate_deviation,
             "size_deviation": self.size_deviation,
             "destination_novelty": self.destination_novelty,
+            "baseline_profile_key": self.baseline_profile_key,
+            "baseline_time_bucket": self.baseline_time_bucket,
+            "baseline_changed_7d": self.baseline_changed_7d,
+            "baseline_change_score": self.baseline_change_score,
+            "baseline_change_reason": self.baseline_change_reason,
             "dest_country": self.dest_country,
             "dest_asn": self.dest_country_code,
             "is_geo_anomaly": self.is_geo_anomaly,
@@ -162,7 +172,9 @@ class ContextEngine:
         # 4. Behavioral baseline
         avg_pkt_size = flow.total_bytes / max(flow.packet_count, 1)
         behavior_ctx = self.behavior_baseline.update_and_compare(
-            key=app_name,
+            endpoint_key=flow.src_ip,
+            app_name=app_name,
+            hour=time_ctx.hour,
             packet_size=avg_pkt_size,
             bytes_in_flow=flow.total_bytes,
             dst_ip=flow.dst_ip,
@@ -187,6 +199,11 @@ class ContextEngine:
             size_deviation=behavior_ctx.size_deviation,
             destination_novelty=behavior_ctx.destination_novelty,
             port_novelty=behavior_ctx.port_novelty,
+            baseline_profile_key=behavior_ctx.baseline_profile_key,
+            baseline_time_bucket=behavior_ctx.baseline_time_bucket,
+            baseline_changed_7d=behavior_ctx.baseline_changed_7d,
+            baseline_change_score=behavior_ctx.baseline_change_score,
+            baseline_change_reason=behavior_ctx.baseline_change_reason,
             dest_country=geo_ctx.country,
             dest_country_code=geo_ctx.country_code,
             is_geo_anomaly=geo_ctx.is_geo_anomaly,

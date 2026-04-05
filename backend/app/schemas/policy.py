@@ -50,3 +50,18 @@ class NLPPolicyParseResponse(BaseModel):
         default_factory=list,
         description="List of intelligent capabilities detected in the policy",
     )
+
+
+class PolicySimulationRequest(BaseModel):
+    policy: PolicyCreate
+    hours: int = Field(default=24, ge=1, le=168)
+    max_samples: int = Field(default=5000, ge=100, le=20000)
+
+
+class PolicySimulationResponse(BaseModel):
+    total_flows: int
+    affected_flows: int
+    would_block_percent: float
+    top_affected_apps: List[Dict[str, Any]] = Field(default_factory=list)
+    top_affected_domains: List[Dict[str, Any]] = Field(default_factory=list)
+    estimated_risk: Dict[str, Any] = Field(default_factory=dict)

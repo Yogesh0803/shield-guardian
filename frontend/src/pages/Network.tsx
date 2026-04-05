@@ -13,6 +13,7 @@ import {
 import { Line, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
+  ChartOptions,
   CategoryScale,
   LinearScale,
   PointElement,
@@ -20,6 +21,7 @@ import {
   BarElement,
   Title,
   Tooltip,
+  TooltipItem,
   Legend,
   Filler,
 } from 'chart.js';
@@ -149,7 +151,7 @@ const Network: React.FC = () => {
     [trafficHistory]
   );
 
-  const lineChartOptions = useMemo(
+  const lineChartOptions = useMemo<ChartOptions<'line'>>(
     () => ({
       responsive: true,
       maintainAspectRatio: false,
@@ -164,8 +166,10 @@ const Network: React.FC = () => {
           borderColor: 'rgba(51, 65, 85, 0.4)',
           borderWidth: 1,
           callbacks: {
-            label: (ctx: { dataset: { label?: string }; parsed: { y: number } }) =>
-              `${ctx.dataset.label}: ${formatBytes(ctx.parsed.y)}`,
+            label: (tooltipItem: TooltipItem<'line'>) => {
+              const y = tooltipItem.parsed.y;
+              return `${tooltipItem.dataset.label}: ${formatBytes(typeof y === 'number' ? y : 0)}`;
+            },
           },
         },
       },
@@ -209,7 +213,7 @@ const Network: React.FC = () => {
     };
   }, [latestUsage]);
 
-  const barChartOptions = useMemo(
+  const barChartOptions = useMemo<ChartOptions<'bar'>>(
     () => ({
       responsive: true,
       maintainAspectRatio: false,
@@ -222,8 +226,10 @@ const Network: React.FC = () => {
           titleColor: '#e2e8f0',
           bodyColor: '#cbd5e1',
           callbacks: {
-            label: (ctx: { dataset: { label?: string }; parsed: { y: number } }) =>
-              `${ctx.dataset.label}: ${formatBytes(ctx.parsed.y)}`,
+            label: (tooltipItem: TooltipItem<'bar'>) => {
+              const y = tooltipItem.parsed.y;
+              return `${tooltipItem.dataset.label}: ${formatBytes(typeof y === 'number' ? y : 0)}`;
+            },
           },
         },
       },

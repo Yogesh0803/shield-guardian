@@ -15,13 +15,21 @@ import {
   AppWindow,
   MapPin,
   Activity,
+  FlaskConical,
+  BarChart3,
+  AlertOctagon,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Input, Select, Textarea } from '../components/ui/Input';
 import { policyService } from '../services/policy.service';
-import type { PolicyConditions, PolicyCreateRequest, NLPPolicyParse } from '../types';
+import type {
+  PolicyConditions,
+  PolicyCreateRequest,
+  NLPPolicyParse,
+  PolicySimulationResponse,
+} from '../types';
 
 type Mode = 'natural' | 'manual';
 
@@ -133,6 +141,9 @@ const PolicyCreate: React.FC = () => {
   const [conditions, setConditions] = useState<PolicyConditions>({ ...emptyConditions });
   const [timeStart, setTimeStart] = useState('');
   const [timeEnd, setTimeEnd] = useState('');
+  const [simulating, setSimulating] = useState(false);
+  const [simulationHours, setSimulationHours] = useState(24);
+  const [simulationResult, setSimulationResult] = useState<PolicySimulationResponse | null>(null);
 
   const updateConditions = useCallback(
     (partial: Partial<PolicyConditions>) => {
@@ -167,19 +178,13 @@ const PolicyCreate: React.FC = () => {
     }
   };
 
-  // Submit policy
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) {
-      setError('Policy name is required');
-      return;
-    }
+  const buildPayload = (): PolicyCreateRequest => {
     const finalConditions = { ...conditions };
     if (timeStart && timeEnd) {
       finalConditions.time_range = { start: timeStart, end: timeEnd };
     }
 
-    const payload: PolicyCreateRequest = {
+    return {
       name: name.trim(),
       description: description.trim(),
       purpose,
@@ -187,6 +192,38 @@ const PolicyCreate: React.FC = () => {
       ...(endpointId.trim() ? { endpoint_id: endpointId.trim() } : {}),
       ...(mode === 'natural' && nlInput ? { natural_language: nlInput } : {}),
     };
+  };
+
+  const handleSimulate = async () => {
+    if (!name.trim()) {
+      setError('Policy name is required before simulation');
+      return;
+    }
+    try {
+      setSimulating(true);
+      setError(null);
+      const result = await policyService.simulate({
+        policy: buildPayload(),
+        hours: simulationHours,
+      });
+      setSimulationResult(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Policy simulation failed';
+      setError(message);
+    } finally {
+      setSimulating(false);
+    }
+  };
+
+  // Submit policy
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError('Policy name is required');
+      return;
+    }
+
+    const payload = buildPayload();
 
     try {
       setSubmitting(true);
@@ -515,6 +552,78 @@ const PolicyCreate: React.FC = () => {
                   <p className="text-sm text-slate-300">
                     {conditions.geo_countries?.length || 'None'}
                   </p>
+                </div>
+
+                <div className="pt-3 border-t border-slate-700/30 space-y-3">
+                  <p className="text-xs text-slate-500 uppercase tracking-wider">Policy Dry-Run</p>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Last N Hours</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={168}
+                      value={simulationHours}
+                      onChange={(e) => setSimulationHours(Math.max(1, Math.min(168, Number(e.target.value) || 24)))}
+                      className="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-slate-200 text-sm"
+                    />
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    icon={<FlaskConical size={15} />}
+                    loading={simulating}
+                    disabled={!name.trim()}
+                    onClick={handleSimulate}
+                  >
+                    Run Dry-Run
+                  </Button>
+
+                  {simulationResult && (
+                    <div className="rounded-md border border-blue-500/30 bg-blue-500/5 p-3 space-y-2">
+                      <p className="text-xs text-blue-300 font-semibold flex items-center gap-1">
+                        <BarChart3 size={12} />
+                        Simulation Result
+                      </p>
+                      <p className="text-xs text-slate-200">
+                        Would have affected{' '}
+                        <span className="text-blue-300 font-semibold">{simulationResult.would_block_percent}%</span>{' '}
+                        of flows in the last {simulationHours}h.
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {simulationResult.affected_flows}/{simulationResult.total_flows} flows matched.
+                      </p>
+                      <p className="text-xs text-slate-200 flex items-center gap-1">
+                        <AlertOctagon size={12} className="text-amber-400" />
+                        Estimated risk: {String(simulationResult.estimated_risk.level).toUpperCase()} ({simulationResult.estimated_risk.score}/100)
+                      </p>
+                      <div>
+                        <p className="text-[11px] text-slate-400 uppercase tracking-wider">Top Affected Apps</p>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {simulationResult.top_affected_apps.length > 0 ? (
+                            simulationResult.top_affected_apps.map((item) => (
+                              <Badge key={item.name} variant="info">{item.name} ({item.count})</Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-slate-500">None</span>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-slate-400 uppercase tracking-wider">Top Affected Domains</p>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {simulationResult.top_affected_domains.length > 0 ? (
+                            simulationResult.top_affected_domains.map((item) => (
+                              <Badge key={item.name} variant="warning">{item.name} ({item.count})</Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-slate-500">None</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-4 border-t border-slate-700/30 space-y-3">

@@ -94,6 +94,28 @@ export interface PolicyCreateRequest {
   natural_language?: string;
 }
 
+export interface PolicySimulationRequest {
+  policy: PolicyCreateRequest;
+  hours?: number;
+  max_samples?: number;
+}
+
+export interface PolicySimulationResponse {
+  total_flows: number;
+  affected_flows: number;
+  would_block_percent: number;
+  top_affected_apps: Array<{ name: string; count: number }>;
+  top_affected_domains: Array<{ name: string; count: number }>;
+  estimated_risk: {
+    score: number;
+    level: 'low' | 'medium' | 'high' | 'critical' | string;
+    reason?: string;
+    avg_anomaly_score?: number;
+    avg_confidence?: number;
+    affected_ratio?: number;
+  };
+}
+
 // ==================== Alert ====================
 export interface Alert {
   id: string;
@@ -109,6 +131,11 @@ export interface Alert {
   timestamp: string;
   threat_intelligence_score?: number;
   explanation_features?: string[];
+  feedback_action?: 'false_positive' | 'whitelist' | 'silence_rule' | null;
+  is_false_positive?: boolean;
+  whitelisted_target?: string | null;
+  silenced_rule_id?: string | null;
+  feedback_note?: string | null;
 }
 
 // ==================== Network ====================
@@ -160,6 +187,11 @@ export interface FlowContext {
   rate_deviation: number;
   size_deviation: number;
   destination_novelty: number;
+  baseline_profile_key?: string;
+  baseline_time_bucket?: string;
+  baseline_changed_7d?: boolean;
+  baseline_change_score?: number;
+  baseline_change_reason?: string;
   dest_country: string;
   dest_asn: string;
   is_geo_anomaly: boolean;

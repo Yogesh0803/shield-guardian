@@ -26,4 +26,30 @@ export const alertService = {
     const res = await api.get<AttackStats[]>(`/attacks/endpoint/${endpointId}/app/${appName}`);
     return res.data;
   },
+
+  async markFalsePositive(alertId: string, note?: string): Promise<{ status: string }> {
+    const res = await api.post<{ status: string }>(`/alerts/${alertId}/false-positive`, { note });
+    return res.data;
+  },
+
+  async whitelist(
+    alertId: string,
+    payload: { target_type: 'ip' | 'domain' | 'app'; target_value?: string; note?: string }
+  ): Promise<{ status: string }> {
+    const res = await api.post<{ status: string }>(`/alerts/${alertId}/whitelist`, payload);
+    return res.data;
+  },
+
+  async silenceRule(
+    alertId: string,
+    payload: { policy_id?: string; note?: string }
+  ): Promise<{ status: string }> {
+    const res = await api.post<{ status: string }>(`/alerts/${alertId}/silence-rule`, payload);
+    return res.data;
+  },
+
+  async getTuningSummary(): Promise<Record<string, unknown>> {
+    const res = await api.get<Record<string, unknown>>('/alerts/feedback/tuning-summary');
+    return res.data;
+  },
 };

@@ -246,6 +246,10 @@ class InferencePipeline:
         if ctx.destination_novelty > 0.8:
             score += 0.15
 
+        # Baseline shift over last 7 days for this endpoint/app/time bucket
+        if ctx.baseline_changed_7d:
+            score += min(0.25, 0.1 + (ctx.baseline_change_score * 0.2))
+
         # Geo anomaly
         if ctx.is_geo_anomaly:
             score += 0.15

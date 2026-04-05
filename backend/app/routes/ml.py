@@ -14,6 +14,7 @@ from app.middleware.auth import get_current_user, require_admin
 from app.models.user import User
 from app.models.ml_prediction import MLPrediction
 from app.models.alert import Alert
+from app.models.alert_silence_rule import AlertSilenceRule
 from app.models.endpoint import Endpoint
 from app.database import get_db
 from app.config import settings
@@ -296,6 +297,26 @@ def _create_alerts_from_predictions(predictions, db: Session, logger):
     alerts_to_add = []
     # Find existing endpoint IPs for linking alerts to endpoints (columns only, avoid relationship loading)
     endpoint_map = {ip: eid for ip, eid in db.query(Endpoint.ip_address, Endpoint.id).all()}
+    silence_rules = (
+        db.query(AlertSilenceRule)
+        .filter(AlertSilenceRule.is_active == True)
+        .all()
+    )
+
+    def _is_silenced(endpoint_id: str, attack_type: str, app_name: Optional[str], src_ip: Optional[str], dst_ip: Optional[str]) -> bool:
+        for rule in silence_rules:
+            if rule.endpoint_id and rule.endpoint_id != endpoint_id:
+                continue
+            if rule.attack_type and rule.attack_type != attack_type:
+                continue
+            if rule.app_name and (app_name or "").lower() != rule.app_name.lower():
+                continue
+            if rule.src_ip and rule.src_ip != src_ip:
+                continue
+            if rule.dst_ip and rule.dst_ip != dst_ip:
+                continue
+            return True
+        return False
 
     for pred in predictions:
         if pred.action not in ("block", "alert"):
@@ -313,6 +334,15 @@ def _create_alerts_from_predictions(predictions, db: Session, logger):
             endpoint_id = first_ep_id[0] if first_ep_id else None
         if not endpoint_id:
             continue  # no endpoints exist at all
+
+        if _is_silenced(endpoint_id, attack_type, pred.app_name, pred.src_ip, pred.dst_ip):
+            logger.info(
+                "[INGEST] Alert suppressed by silence rule: attack=%s app=%s endpoint=%s",
+                attack_type,
+                pred.app_name,
+                endpoint_id,
+            )
+            continue
 
         src = pred.src_ip or "?"
         dst = pred.dst_ip or "?"

@@ -1,5 +1,11 @@
 import api from './api';
-import type { Policy, PolicyCreateRequest, NLPPolicyParse } from '../types';
+import type {
+  Policy,
+  PolicyCreateRequest,
+  NLPPolicyParse,
+  PolicySimulationRequest,
+  PolicySimulationResponse,
+} from '../types';
 
 export const policyService = {
   async getAll(): Promise<Policy[]> {
@@ -28,6 +34,11 @@ export const policyService = {
 
   async parseNaturalLanguage(input: string): Promise<NLPPolicyParse> {
     const res = await api.post<NLPPolicyParse>('/policies/parse', { input });
+    return res.data;
+  },
+
+  async simulate(data: PolicySimulationRequest): Promise<PolicySimulationResponse> {
+    const res = await api.post<PolicySimulationResponse>('/policies/simulate', data);
     return res.data;
   },
 };

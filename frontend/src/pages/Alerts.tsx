@@ -16,6 +16,10 @@ import {
   WifiOff,
   ShieldCheck,
   List,
+  Ban,
+  CheckCircle2,
+  VolumeX,
+  Shield,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
@@ -52,6 +56,11 @@ const FlowContextDetail: React.FC<{ context?: FlowContext }> = ({ context }) => 
         { label: 'Rate Deviation', value: context.rate_deviation?.toFixed(3) },
         { label: 'Size Deviation', value: context.size_deviation?.toFixed(3) },
         { label: 'Dest Novelty', value: context.destination_novelty?.toFixed(3) },
+        { label: 'Baseline Profile', value: context.baseline_profile_key },
+        { label: 'Time Bucket', value: context.baseline_time_bucket },
+        { label: '7d Baseline Drift', value: context.baseline_changed_7d ? 'Yes' : 'No' },
+        { label: 'Drift Score', value: context.baseline_change_score?.toFixed(3) },
+        { label: 'Drift Reason', value: context.baseline_change_reason },
         { label: 'Dest Country', value: context.dest_country },
         { label: 'Dest ASN', value: context.dest_asn },
         { label: 'Geo Anomaly', value: context.is_geo_anomaly ? 'Yes' : 'No' },
@@ -71,6 +80,11 @@ const Alerts: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [policySilenceByAlert, setPolicySilenceByAlert] = useState<Record<string, string>>({});
+  const [domainWhitelistByAlert, setDomainWhitelistByAlert] = useState<Record<string, string>>({});
 
   // Filters
   const [severityFilter, setSeverityFilter] = useState('');
@@ -121,6 +135,22 @@ const Alerts: React.FC = () => {
 
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
+  };
+
+  const runAction = async (alertId: string, op: () => Promise<unknown>, successMsg: string) => {
+    try {
+      setActionError(null);
+      setActionSuccess(null);
+      setActionLoadingId(alertId);
+      await op();
+      setActionSuccess(successMsg);
+      await fetchData();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Action failed';
+      setActionError(message);
+    } finally {
+      setActionLoadingId(null);
+    }
   };
 
   const endpointOptions = [
@@ -193,6 +223,22 @@ const Alerts: React.FC = () => {
         <Card className="mb-6 border-red-500/30">
           <CardContent>
             <p className="text-red-400 text-sm">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {actionSuccess && (
+        <Card className="mb-6 border-emerald-500/30">
+          <CardContent>
+            <p className="text-emerald-400 text-sm">{actionSuccess}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {actionError && (
+        <Card className="mb-6 border-red-500/30">
+          <CardContent>
+            <p className="text-red-400 text-sm">{actionError}</p>
           </CardContent>
         </Card>
       )}
@@ -298,6 +344,12 @@ const Alerts: React.FC = () => {
                             {Math.round(alert.confidence * 100)}% confidence
                           </span>
                         )}
+                        {alert.feedback_action && (
+                          <span className="flex items-center gap-1 text-emerald-400">
+                            <CheckCircle2 size={12} />
+                            Action: {alert.feedback_action.replace('_', ' ')}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -310,6 +362,132 @@ const Alerts: React.FC = () => {
                   {/* Expanded content */}
                   {isExpanded && (
                     <div className="mt-4 pt-4 border-t border-slate-700/30">
+                      <div className="mb-4">
+                        <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                          Response Actions
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            icon={<CheckCircle2 size={13} />}
+                            loading={actionLoadingId === alert.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              runAction(
+                                alert.id,
+                                () => alertService.markFalsePositive(alert.id),
+                                'Alert marked as false positive and added to feedback dataset.'
+                              );
+                            }}
+                          >
+                            Mark False Positive
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            icon={<Shield size={13} />}
+                            loading={actionLoadingId === alert.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              runAction(
+                                alert.id,
+                                () => alertService.whitelist(alert.id, { target_type: 'ip' }),
+                                'IP whitelist rule created.'
+                              );
+                            }}
+                          >
+                            Whitelist IP
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            icon={<AppWindow size={13} />}
+                            loading={actionLoadingId === alert.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              runAction(
+                                alert.id,
+                                () => alertService.whitelist(alert.id, { target_type: 'app' }),
+                                'App whitelist rule created.'
+                              );
+                            }}
+                          >
+                            Whitelist App
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            icon={<VolumeX size={13} />}
+                            loading={actionLoadingId === alert.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              runAction(
+                                alert.id,
+                                () => alertService.silenceRule(alert.id, { policy_id: policySilenceByAlert[alert.id] || undefined }),
+                                'Silence rule enabled for similar alerts.'
+                              );
+                            }}
+                          >
+                            Silence Rule
+                          </Button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                          <input
+                            className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200"
+                            placeholder="Whitelist domain (optional), e.g. api.example.com"
+                            value={domainWhitelistByAlert[alert.id] || ''}
+                            onChange={(e) =>
+                              setDomainWhitelistByAlert((prev) => ({
+                                ...prev,
+                                [alert.id]: e.target.value,
+                              }))
+                            }
+                          />
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            icon={<Ban size={13} />}
+                            loading={actionLoadingId === alert.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              runAction(
+                                alert.id,
+                                () =>
+                                  alertService.whitelist(alert.id, {
+                                    target_type: 'domain',
+                                    target_value: (domainWhitelistByAlert[alert.id] || '').trim(),
+                                  }),
+                                'Domain whitelist rule created.'
+                              );
+                            }}
+                          >
+                            Whitelist Domain
+                          </Button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                          <input
+                            className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200"
+                            placeholder="Policy ID to disable (optional)"
+                            value={policySilenceByAlert[alert.id] || ''}
+                            onChange={(e) =>
+                              setPolicySilenceByAlert((prev) => ({
+                                ...prev,
+                                [alert.id]: e.target.value,
+                              }))
+                            }
+                          />
+                          <p className="text-xs text-slate-500 self-center">
+                            If set, this policy is deactivated in addition to creating a silence rule.
+                          </p>
+                        </div>
+                      </div>
+
                       {(alert.explanation_features ?? []).length > 0 && (
                         <div className="mb-4">
                           <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">

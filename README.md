@@ -24,86 +24,101 @@ Make sure the following are installed on your system before proceeding:
 
 ---
 
-## How to Run (Step by Step)
+## How to Run (Verified on Windows)
 
-### Step 1 — Open the Project Folder
+### Option A (recommended): use the dev runner
 
-Open the `guardian-shield` folder in your file explorer or in VS Code.
+This starts backend + frontend together and handles logs in one terminal.
 
----
-
-### Step 2 — Start the Backend (Run as Administrator)
-
-> **Important:** The backend **must** run with Administrator privileges so that firewall blocking (hosts file + netsh rules) works correctly. Without admin rights the app will start but blocking features will be disabled.
-
-#### Windows (PowerShell — recommended)
-
-1. **Right-click** on **Windows Terminal** or **PowerShell** and select **"Run as Administrator"**.
-2. Navigate to the backend folder:
+1. Open **PowerShell as Administrator**.
+2. Go to the repo root:
    ```powershell
-   cd "path\to\guardian-shield\backend"
+   cd "path\to\guardian-shield"
    ```
-3. Install Python dependencies (only needed the first time):
+3. Install dependencies (first run only):
    ```powershell
-   pip install -r requirements.txt
+   .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+   cd frontend
+   npm install --legacy-peer-deps
+   cd ..
    ```
-4. *(Optional)* Create a `.env` file from the example:
+4. Start the project:
    ```powershell
-   copy .env.example .env
-   ```
-   The defaults work out of the box — no changes needed for local development.
-
-5. Start the backend server:
-   ```powershell
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-   ```
-6. You should see:
-   ```
-   INFO:     Uvicorn running on http://0.0.0.0:8000
-   INFO:     Application startup complete.
+   .\.venv\Scripts\python.exe run_dev.py
    ```
 
-> **Keep this terminal open.** The backend runs on **http://localhost:8000**.
+Expected startup output includes backend/frontend tags and URLs for `http://localhost:8000` and `http://localhost:3000`.
 
-#### Quick health check
-
-Open a browser or a new terminal and run:
+Quick verification:
+```powershell
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:3000
 ```
-curl http://localhost:8000/health
-```
-Expected response: `{"status":"healthy"}`
 
----
+### Option B: start services manually (fallback)
 
-### Step 3 — Start the Frontend
+Use this if you want separate terminals or need to debug startup.
 
-Open a **new / separate terminal** (admin is not required for the frontend).
+1. Terminal 1 (backend):
+   ```powershell
+   cd "path\to\guardian-shield"
+   .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+   $env:PYTHONPATH = (Get-Location).Path
+   cd backend
+   ..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+   ```
 
-1. Navigate to the frontend folder:
+2. Backend health check (new terminal):
+   ```powershell
+   curl http://127.0.0.1:8000/health
+   ```
+   Expected response:
+   ```json
+   {"status":"healthy"}
+   ```
+
+3. Terminal 2 (frontend):
    ```powershell
    cd "path\to\guardian-shield\frontend"
-   ```
-2. Install Node dependencies (only needed the first time):
-   ```powershell
    npm install --legacy-peer-deps
-   ```
-3. *(Optional)* Create a `.env` file from the example:
-   ```powershell
-   copy .env.example .env
-   ```
-   The defaults (`REACT_APP_API_URL=http://localhost:8000`) work out of the box.
-
-4. Start the React development server:
-   ```powershell
    npm start
    ```
-5. The browser will automatically open **http://localhost:3000** with the Guardian Shield dashboard.
 
-> **Keep this terminal open.** The frontend runs on **http://localhost:3000**.
+4. Verify both services:
+   ```powershell
+   curl http://127.0.0.1:8000/health
+   curl http://127.0.0.1:3000
+   ```
+
+5. Open the dashboard at `http://localhost:3000`.
+
+### Exact commands that were validated in this workspace
+
+From repo root (`e:\guardian-shield`), this sequence successfully started both services:
+
+```powershell
+# Backend terminal
+cd e:\guardian-shield
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+$env:PYTHONPATH = "e:/guardian-shield"
+cd backend
+..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+```powershell
+# Frontend terminal
+cd e:\guardian-shield\frontend
+npm install --legacy-peer-deps
+npm start
+```
+
+Expected checks:
+- `http://127.0.0.1:8000/health` returns `{"status":"healthy"}`
+- `http://127.0.0.1:3000` returns HTTP 200
 
 ---
 
-### Step 4 — Log In
+### Step 2 — Log In
 
 Use the default admin credentials to log in:
 
@@ -116,7 +131,7 @@ The backend auto-seeds sample data (endpoints, alerts, network traffic) on first
 
 ---
 
-### Step 5 — (Optional) Start the ML Engine
+### Step 3 — (Optional) Start the ML Engine
 
 The ML engine captures live network packets and feeds real-time predictions to the dashboard. It requires admin/root privileges for packet capture.
 
@@ -140,9 +155,10 @@ The ML engine captures live network packets and feeds real-time predictions to t
 
 | # | Terminal | Folder | Command | Admin? |
 |---|----------|--------|---------|--------|
-| 1 | Backend | `backend/` | `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000` | **Yes** |
-| 2 | Frontend | `frontend/` | `npm start` | No |
-| 3 | ML Engine *(optional)* | `ml/` | `python -m ml.main` | **Yes** |
+| 1 | Dev runner (recommended) | repo root | `.\.venv\Scripts\python.exe run_dev.py` | **Yes** |
+| 2 | Backend (manual fallback) | `backend/` | `$env:PYTHONPATH='<repo-root>'; ..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000` | No (recommended Yes for enforcement) |
+| 3 | Frontend | `frontend/` | `npm install --legacy-peer-deps && npm start` | No |
+| 4 | ML Engine *(optional)* | `ml/` | `python -m ml.main` | **Yes** |
 
 | Service | URL |
 |---------|-----|
@@ -297,11 +313,40 @@ Supported conditions: apps, IPs, domains, ports, protocols, time ranges, days of
 
 | Problem | Solution |
 |---------|----------|
-| `PermissionError` / hosts file warning | You are not running the backend as Administrator. Close the terminal, reopen with **Run as Administrator**, and start again. |
+| `Backend needs Administrator privileges for policy enforcement` when using `run_dev.py` | Run PowerShell as Administrator and start again, or use the manual fallback commands above. |
+| `ModuleNotFoundError: No module named 'ml'` when starting backend manually | Start from repo root and set `PYTHONPATH` to the repo root before launching Uvicorn. |
 | `npm install` fails with peer dependency errors | Use `npm install --legacy-peer-deps` |
+| `'react-scripts' is not recognized` | Run `npm install --legacy-peer-deps` in `frontend/` (even if `node_modules` already exists). |
 | Port 8000 already in use | Stop the other process or change the port: `uvicorn app.main:app --reload --port 8001` |
 | Port 3000 already in use | React will prompt you to use another port — type `Y` to accept |
 | Frontend can't reach backend | Make sure the backend is running first, and both `.env` files point to the correct URLs |
+
+### Windows quick fix: free port 3000
+
+If `npm start` says something is already running on port 3000 and you get access-denied when stopping it from a normal shell:
+
+1. Open **PowerShell as Administrator**.
+2. Find the process on port 3000:
+   ```powershell
+   Get-NetTCPConnection -LocalPort 3000 -State Listen | Select-Object OwningProcess, LocalAddress, LocalPort
+   ```
+3. Kill that process (replace PID):
+   ```powershell
+   taskkill /PID <PID> /T /F
+   ```
+4. Start frontend again:
+   ```powershell
+   cd e:\guardian-shield\frontend
+   npm start
+   ```
+
+Temporary workaround if you cannot kill PID 3000 owner immediately:
+
+```powershell
+cd e:\guardian-shield\frontend
+$env:PORT = "3001"
+npm start
+```
 
 ## License
 
