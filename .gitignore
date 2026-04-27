@@ -43,3 +43,10 @@ ml/models/saved/
 # Python
 *.pyc
 __pycache__/
+
+# Generated outputs
+graphify-out/
+*.pid
+.graphify_python
+tmp/
+npm-cache/
