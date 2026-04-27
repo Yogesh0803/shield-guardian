@@ -30,10 +30,10 @@ Thumbs.db
 logs/
 
 # Database
-# *.db
-# *.db-shm
-# *.db-wal
-# *.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
 
 # ML data & models (large files - regenerate with training scripts)
 ml/data/cicids2017/

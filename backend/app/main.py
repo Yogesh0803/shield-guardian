@@ -32,7 +32,34 @@ from app.services.seed import seed_database
 from app.services.enforcer import enforcer
 from app.services.ml_loader import probe_models
 
+import socket
+
 _prune_logger = logging.getLogger("guardian-shield.prune")
+_startup_logger = logging.getLogger("guardian-shield.startup")
+
+
+def _get_local_ip() -> str:
+    """Detect this machine's LAN IP automatically."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+
+
+def _sync_endpoint_ip(db) -> None:
+    """Update the Dev Machine endpoint IP to this machine's current LAN IP."""
+    current_ip = _get_local_ip()
+    endpoint = db.query(Endpoint).filter(Endpoint.name == "Dev Machine").first()
+    if endpoint and endpoint.ip_address != current_ip:
+        _startup_logger.info(
+            f"Updating Dev Machine IP: {endpoint.ip_address} → {current_ip}"
+        )
+        endpoint.ip_address = current_ip
+        db.commit()
+    elif endpoint:
+        _startup_logger.info(f"Dev Machine IP unchanged: {current_ip}")
 
 # Maximum age for ml_predictions rows (days).
 _PREDICTION_RETENTION_DAYS = 7
@@ -103,6 +130,8 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_database(db)
+        # Update endpoint IP to this machine's current LAN IP on every startup
+        _sync_endpoint_ip(db)
         # Sync enforcer: re-apply all active block policies (hosts file + firewall)
         enforcer.sync_from_db(db)
     finally:
