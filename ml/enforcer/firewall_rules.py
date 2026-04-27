@@ -265,20 +265,45 @@ class FirewallEnforcer:
         )
         return result.returncode == 0
 
-    # ============ Linux (iptables) ============
+    # ============ Linux (iptables / nftables) ============
+
+    @staticmethod
+    def _iptables_cmd() -> list:
+        """Return iptables or nft command depending on what's available."""
+        # Prefer nftables on modern distros
+        result = subprocess.run(["which", "nft"], capture_output=True, text=True)
+        if result.returncode == 0:
+            return ["nft"]
+        return ["iptables"]
 
     def _block_linux(self, ip: str) -> bool:
+        # Try iptables first, fall back to nft
         result = subprocess.run(
-            ["iptables", "-A", "OUTPUT", "-d", ip, "-j", "DROP"],
+            ["sudo", "iptables", "-A", "OUTPUT", "-d", ip, "-j", "DROP"],
             capture_output=True, text=True,
         )
+        if result.returncode != 0:
+            logger.warning(f"iptables failed ({result.stderr.strip()}), trying nft...")
+            result = subprocess.run(
+                ["sudo", "nft", "add", "rule", "ip", "filter", "OUTPUT",
+                 f"ip daddr {ip}", "drop"],
+                capture_output=True, text=True,
+            )
+        if result.returncode != 0:
+            logger.error(f"Linux block failed for {ip}: {result.stderr.strip()}")
         return result.returncode == 0
 
     def _unblock_linux(self, ip: str) -> bool:
         result = subprocess.run(
-            ["iptables", "-D", "OUTPUT", "-d", ip, "-j", "DROP"],
+            ["sudo", "iptables", "-D", "OUTPUT", "-d", ip, "-j", "DROP"],
             capture_output=True, text=True,
         )
+        if result.returncode != 0:
+            result = subprocess.run(
+                ["sudo", "nft", "delete", "rule", "ip", "filter", "OUTPUT",
+                 f"ip daddr {ip}", "drop"],
+                capture_output=True, text=True,
+            )
         return result.returncode == 0
 
     # ============ Status ============
@@ -481,7 +506,7 @@ class FirewallEnforcer:
         return result.returncode == 0
 
     def _isolate_linux(self, ip: str, scope: str, allowed_ips: List[str]) -> bool:
-        """Isolate endpoint on Linux using iptables."""
+        """Isolate endpoint on Linux using iptables (with sudo)."""
         target = ip
         if scope == "subnet":
             parts = ip.split(".")
@@ -491,16 +516,16 @@ class FirewallEnforcer:
         # Allow management first (order matters in iptables)
         for mgmt_ip in allowed_ips:
             subprocess.run(
-                ["iptables", "-I", "OUTPUT", "-d", mgmt_ip, "-j", "ACCEPT"],
+                ["sudo", "iptables", "-I", "OUTPUT", "-d", mgmt_ip, "-j", "ACCEPT"],
                 capture_output=True, text=True,
             )
         # Block all traffic to target
         result = subprocess.run(
-            ["iptables", "-A", "OUTPUT", "-d", target, "-j", "DROP"],
+            ["sudo", "iptables", "-A", "OUTPUT", "-d", target, "-j", "DROP"],
             capture_output=True, text=True,
         )
         subprocess.run(
-            ["iptables", "-A", "INPUT", "-s", target, "-j", "DROP"],
+            ["sudo", "iptables", "-A", "INPUT", "-s", target, "-j", "DROP"],
             capture_output=True, text=True,
         )
         return result.returncode == 0
@@ -513,11 +538,11 @@ class FirewallEnforcer:
             if len(parts) == 4:
                 target = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
         subprocess.run(
-            ["iptables", "-D", "OUTPUT", "-d", target, "-j", "DROP"],
+            ["sudo", "iptables", "-D", "OUTPUT", "-d", target, "-j", "DROP"],
             capture_output=True, text=True,
         )
         result = subprocess.run(
-            ["iptables", "-D", "INPUT", "-s", target, "-j", "DROP"],
+            ["sudo", "iptables", "-D", "INPUT", "-s", target, "-j", "DROP"],
             capture_output=True, text=True,
         )
         return result.returncode == 0
